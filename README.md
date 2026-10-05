@@ -91,29 +91,17 @@ git-ignored, so your ledger is never committed.
 
 ## Deploying to Render
 
-The repository includes `render.yaml`, which provisions the web service **and a
-free Postgres database** so nothing is lost when the service restarts.
+Full walkthrough, including the database choice and how to load your data:
+**[DEPLOY.md](DEPLOY.md)**.
 
-1. Push this folder to a GitHub repository.
-2. In Render: **New +** → **Blueprint** → pick the repository.
-3. Render reads `render.yaml` and creates `bails-ledger` plus `bails-ledger-db`.
-4. Set **`ADMIN_PASSWORD`** in the service's Environment tab to the password you
-   want. (`SECRET_KEY` is generated for you.)
-5. Deploy. Health checks hit `/healthz`.
+The short version: push to GitHub, then Render → **New +** → **Blueprint** →
+pick the repo → **Apply**. `render.yaml` defines the service and prompts you for
+`ADMIN_PASSWORD` and `PARTNER_PASSCODE`; `SECRET_KEY` is generated.
 
-> **Why Postgres?** Render's free disk is wiped on every deploy and restart. With
-> `DATABASE_URL` set the app uses Postgres automatically; without it, it falls
-> back to local SQLite. The same code runs in both places — no edits needed.
-
-### Loading your Excel data into the deployed app
-
-```bash
-# From the Render shell, or locally with DATABASE_URL pointed at Render's Postgres
-export DATABASE_URL='<the External Database URL from Render>'
-python import_excel.py BailsLedgerBook.xlsx --replace
-```
-
----
+> ⚠️ **Render's free Postgres is deleted 30 days after creation**, with no
+> backups. For a ledger you intend to keep, use a free
+> [Neon](https://neon.com) database instead and set `DATABASE_URL` to its
+> connection string — the app needs no code change. DEPLOY.md has both paths.
 
 ## Configuration
 

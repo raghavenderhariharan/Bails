@@ -15,6 +15,10 @@ services:
         generateValue: true          # a fresh random key; keeps sessions signed
       - key: ADMIN_PASSWORD
         sync: false                  # set this yourself in the Render dashboard
+      - key: PARTNER_PASSCODE
+        sync: false                  # STRONGLY recommended on a public URL:
+                                     # without it, anyone with the link can read
+                                     # the whole ledger. Leave blank for none.
       - key: FORCE_HTTPS
         value: "true"                # marks the session cookie Secure
       - key: TRUSTED_PROXY_COUNT

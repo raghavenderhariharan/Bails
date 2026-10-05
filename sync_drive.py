@@ -13,6 +13,14 @@ import os
 import sys
 from datetime import datetime, timezone
 
+import os as _os
+
+# These scripts only touch the database; they never serve a request, so they do
+# not need a real session key. Set a placeholder before importing the app so the
+# "SECRET_KEY is required in deployment" guard does not block a CLI run against
+# a remote DATABASE_URL.
+_os.environ.setdefault("SECRET_KEY", "cli-no-sessions")
+
 from app import app
 from exporter import build_workbook
 from finance import parse_period
