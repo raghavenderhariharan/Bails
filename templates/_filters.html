@@ -1,0 +1,115 @@
+{#  Period filter bar. Preserves non-period query args (search, category…)
+    so switching period never silently drops the user's other choices. #}
+{% set extra = {} %}
+{% for k, v in request.args.items() %}
+  {# Skip url_for's own reserved options (_external, _anchor, ...) so a crafted
+     query string cannot be splatted into url_for and 500 the page. #}
+  {% if k not in ['period','month','year','quarter','from','to'] and not k.startswith('_') and v %}
+    {% set _ = extra.update({k: v}) %}
+  {% endif %}
+{% endfor %}
+
+<section class="filters" aria-label="Period filter">
+  <div class="filters__row">
+    <div class="field">
+      <label id="period-label">Period</label>
+      <div class="seg" role="group" aria-labelledby="period-label">
+        {% set anchor_month = period.params.month if period.kind == 'month' else (period.end or now_date).strftime('%Y-%m') %}
+        {% set anchor_year  = period.params.year if period.params.year is defined else (period.end or now_date).year %}
+        {% set anchor_q     = period.params.quarter if period.params.quarter is defined else (((period.end or now_date).month - 1) // 3 + 1) %}
+        <a href="{{ url_for(request.endpoint, period='month', month=anchor_month, **extra) }}"
+           aria-current="{{ 'true' if period.kind == 'month' else 'false' }}">Monthly</a>
+        <a href="{{ url_for(request.endpoint, period='quarter', year=anchor_year, quarter=anchor_q, **extra) }}"
+           aria-current="{{ 'true' if period.kind == 'quarter' else 'false' }}">Quarterly</a>
+        <a href="{{ url_for(request.endpoint, period='year', year=anchor_year, **extra) }}"
+           aria-current="{{ 'true' if period.kind == 'year' else 'false' }}">Yearly</a>
+        <a href="{{ url_for(request.endpoint, period='all', **extra) }}"
+           aria-current="{{ 'true' if period.kind == 'all' else 'false' }}">All time</a>
+      </div>
+    </div>
+
+    <form method="get" action="{{ url_for(request.endpoint) }}" class="filters__row" style="gap:.6rem">
+      {% for k, v in extra.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+
+      {% if period.kind == 'month' %}
+        <input type="hidden" name="period" value="month">
+        <div class="field" style="max-width:190px">
+          <label for="f-month">Month</label>
+          <input type="month" id="f-month" name="month" value="{{ period.params.month }}">
+        </div>
+      {% elif period.kind == 'quarter' %}
+        <input type="hidden" name="period" value="quarter">
+        <div class="field" style="max-width:130px">
+          <label for="f-year">Year</label>
+          <select id="f-year" name="year">
+            {% for y in (year_choices + [period.params.year | int]) | unique | sort(reverse=true) %}
+              <option value="{{ y }}" {{ 'selected' if y|string == period.params.year }}>{{ y }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field" style="max-width:150px">
+          <label for="f-q">Quarter</label>
+          <select id="f-q" name="quarter">
+            {% for q, lbl in [(1,'Q1 Jan–Mar'),(2,'Q2 Apr–Jun'),(3,'Q3 Jul–Sep'),(4,'Q4 Oct–Dec')] %}
+              <option value="{{ q }}" {{ 'selected' if q|string == period.params.quarter }}>{{ lbl }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      {% elif period.kind == 'year' %}
+        <input type="hidden" name="period" value="year">
+        <div class="field" style="max-width:130px">
+          <label for="f-year2">Year</label>
+          <select id="f-year2" name="year">
+            {% for y in (year_choices + [period.params.year | int]) | unique | sort(reverse=true) %}
+              <option value="{{ y }}" {{ 'selected' if y|string == period.params.year }}>{{ y }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      {% elif period.kind == 'custom' %}
+        <input type="hidden" name="period" value="custom">
+        <div class="field" style="max-width:165px">
+          <label for="f-from">From</label>
+          <input type="date" id="f-from" name="from" value="{{ period.params.get('from','') }}">
+        </div>
+        <div class="field" style="max-width:165px">
+          <label for="f-to">To</label>
+          <input type="date" id="f-to" name="to" value="{{ period.params.get('to','') }}">
+        </div>
+      {% endif %}
+
+      {% if period.kind != 'all' %}
+        <button class="btn" type="submit">Apply</button>
+      {% endif %}
+    </form>
+
+    <span class="topbar__spacer"></span>
+
+    <div class="field">
+      <label>Showing</label>
+      <strong style="font-size:.92rem">{{ period.label }}</strong>
+    </div>
+
+    {% if period.kind != 'custom' %}
+      {% set custom_args = dict(extra, period='custom',
+                                to=(period.end or now_date).isoformat()) %}
+      {% set _ = custom_args.update({'from': (period.start or period.end or now_date).isoformat()}) %}
+      <a class="btn btn--sm btn--ghost" href="{{ url_for(request.endpoint, **custom_args) }}">Custom range</a>
+    {% endif %}
+    <a class="btn btn--sm btn--ghost" href="{{ url_for('export_xlsx', **period.query_args()) }}"
+       title="Download an Excel workbook laid out like BailsLedgerBook.xlsx">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+      Export Excel
+    </a>
+    {% if is_admin and drive_sync_ready %}
+      <form method="post" action="{{ url_for('export_to_drive', **period.query_args()) }}" style="margin:0">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <button class="btn btn--sm btn--primary" type="submit"
+                title="Write the workbook into your Google Drive folder, replacing the previous copy">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l7 12h-6l-7-12z"/><path d="M5 14l-3 6h14l3-6z"/></svg>
+          Save to Drive
+        </button>
+      </form>
+    {% endif %}
+  </div>
+</section>

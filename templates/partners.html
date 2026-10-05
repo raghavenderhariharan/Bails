@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}Partner Profit{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Partner Profit</h1>
+    <div class="page-head__sub">Each partner&rsquo;s share of net profit for {{ period.label }}</div>
+  </div>
+</div>
+
+{% include "_filters.html" %}
+
+{% if not shares.balanced %}
+  <div class="banner">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+    <span>Active equity totals <strong>{{ shares.equity_total }}%</strong>, not 100%.
+      Shares are pro-rata to the percentages below; {{ CURRENCY }}{{ shares.unallocated | money }} of net profit is unallocated.</span>
+  </div>
+{% endif %}
+
+<div class="grid grid--kpi" style="margin-bottom:1rem">
+  <div class="kpi kpi--credit">
+    <div class="kpi__label">Income</div>
+    <div class="kpi__value kpi__value--credit"><span class="cur">{{ CURRENCY }}</span>{{ summary.income | money }}</div>
+  </div>
+  <div class="kpi kpi--debit">
+    <div class="kpi__label">Expenses</div>
+    <div class="kpi__value kpi__value--debit"><span class="cur">{{ CURRENCY }}</span>{{ summary.expense | money }}</div>
+  </div>
+  <div class="kpi kpi--net">
+    <div class="kpi__label">Distributable net profit</div>
+    <div class="kpi__value {{ 'v-neg' if summary.net < 0 else '' }}"><span class="cur">{{ CURRENCY }}</span>{{ summary.net | money }}</div>
+    <div class="kpi__meta">{{ period.label }}</div>
+  </div>
+</div>
+
+{% if summary.net < 0 %}
+  <div class="banner">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+    <span>This period ran at a <strong>loss</strong>. The figures below are each partner&rsquo;s share of that loss, not a payout.</span>
+  </div>
+{% endif %}
+
+<div class="card" style="margin-bottom:1rem">
+  <div class="card__head">
+    <h2>Share of net profit — {{ period.label }}</h2>
+  </div>
+  <div class="card__body card__body--flush">
+    <div class="table-scroll">
+      <table class="ledger">
+        <thead>
+          <tr><th>Partner</th><th class="num">Equity</th><th style="width:34%">Relative share</th><th class="num">Share of net profit</th></tr>
+        </thead>
+        <tbody>
+          {% set maxshare = shares.rows | map(attribute='share') | map('abs') | max if shares.rows else 0 %}
+          {% for row in shares.rows %}
+            <tr>
+              <td class="nowrap"><strong>{{ row.name }}</strong></td>
+              <td class="num"><span class="equity-pill">{{ row.equity | round(3) | float | round(2) }}%</span></td>
+              <td>
+                <span class="bars__track" style="display:block">
+                  <span class="bars__fill {{ 'bars__fill--debit' if row.share < 0 else 'bars__fill--navy' }}"
+                        style="width: {{ ((row.share | abs) / maxshare * 100) | round(1) if maxshare > 0 else 0 }}%"></span>
+                </span>
+              </td>
+              <td class="num {{ 'v-neg' if row.share < 0 else '' }}"><strong>{{ CURRENCY }}{{ row.share | money }}</strong></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td>Total</td>
+            <td class="num">{{ shares.equity_total }}%</td>
+            <td></td>
+            <td class="num {{ 'v-neg' if shares.allocated < 0 else '' }}">{{ CURRENCY }}{{ shares.allocated | money }}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% if is_admin %}
+<div class="card">
+  <div class="card__head">
+    <h2>Equity split</h2>
+    <span class="spacer"></span>
+    <span class="small muted">Names and percentages are editable. Active equity should total 100%.</span>
+  </div>
+  <div class="card__body">
+    <form method="post" action="{{ url_for('partners_save') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="table-scroll">
+        <table class="ledger">
+          <thead><tr><th>Partner name</th><th class="num" style="width:150px">Equity %</th><th style="width:110px">Active</th></tr></thead>
+          <tbody>
+            {% for p in all_partners %}
+              <tr>
+                <td><input type="text" name="name_{{ p.id }}" value="{{ p.name }}" maxlength="120" required
+                           aria-label="Name for partner {{ loop.index }}"></td>
+                <td><input type="number" name="equity_{{ p.id }}" value="{{ p.equity_pct | round(3) | float | round(2) }}"
+                           min="0" max="100" step="0.01" class="num" aria-label="Equity percent for {{ p.name }}"></td>
+                <td>
+                  <label style="display:flex;align-items:center;gap:.4rem;font-size:.85rem">
+                    <input type="checkbox" name="active_{{ p.id }}" {{ 'checked' if p.is_active }} style="width:auto">
+                    Include
+                  </label>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:1rem">
+        <button class="btn btn--primary" type="submit">Save equity split</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% else %}
+<div class="card">
+  <div class="card__head">
+    <h2>Equity split</h2>
+    <span class="spacer"></span>
+    <span class="small muted">Read-only &mdash; only Admin can change the split.</span>
+  </div>
+  <div class="card__body card__body--flush">
+    <div class="table-scroll">
+      <table class="ledger">
+        <thead><tr><th>Partner name</th><th class="num">Equity %</th><th>Status</th></tr></thead>
+        <tbody>
+          {% for p in all_partners %}
+            <tr>
+              <td><strong>{{ p.name }}</strong></td>
+              <td class="num">{{ p.equity_pct | round(3) | float | round(2) }}%</td>
+              <td>
+                {% if p.is_active %}
+                  <span class="tag tag--credit">Active</span>
+                {% else %}
+                  <span class="tag">Excluded</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,138 @@
+{# Shared body for the Income (credit) and Expenses (debit) tabs. #}
+{% set is_income = kind == INCOME %}
+{% set accent = 'credit' if is_income else 'debit' %}
+
+<div class="page-head">
+  <div>
+    <h1>{{ 'Income · Credit' if is_income else 'Expenses · Debit' }}</h1>
+    <div class="page-head__sub">{{ period.label }} · {{ rows | length }} entr{{ 'y' if rows | length == 1 else 'ies' }}</div>
+  </div>
+  <span class="topbar__spacer"></span>
+  {% if is_admin %}
+    <button class="btn btn--{{ accent }}" type="button" data-open-entry data-kind="{{ kind }}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      Add {{ 'income' if is_income else 'expense' }}
+    </button>
+  {% endif %}
+</div>
+
+{% include "_filters.html" %}
+
+<div class="grid grid--kpi" style="margin-bottom:1rem">
+  <div class="kpi kpi--{{ accent }}">
+    <div class="kpi__label">{{ 'Total credit' if is_income else 'Total debit' }} · {{ period.label }}</div>
+    <div class="kpi__value kpi__value--{{ accent }}"><span class="cur">{{ CURRENCY }}</span>{{ subtotal | money }}</div>
+    <div class="kpi__meta">{{ 'Filtered subtotal' if (search or active_category) else 'All entries in period' }}</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi__label">Entries</div>
+    <div class="kpi__value">{{ rows | length }}</div>
+    <div class="kpi__meta">Average {{ CURRENCY }}{{ ((subtotal / (rows | length)) if rows | length else 0) | money }}</div>
+  </div>
+  <div class="kpi kpi--net">
+    <div class="kpi__label">Period net profit</div>
+    <div class="kpi__value {{ 'v-neg' if summary.net < 0 else '' }}"><span class="cur">{{ CURRENCY }}</span>{{ summary.net | money }}</div>
+    <div class="kpi__meta">{{ CURRENCY }}{{ summary.income | money }} in − {{ CURRENCY }}{{ summary.expense | money }} out</div>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:1rem">
+  <div class="card__head"><h2>By category</h2></div>
+  <div class="card__body">
+    {% if breakdown %}
+      {% set top = breakdown[0].amount %}
+      <div class="bars">
+        {% for row in breakdown %}
+          <div class="bars__row">
+            <span class="bars__label" title="{{ row.label }}">{{ row.label }}</span>
+            <span class="bars__track"><span class="bars__fill bars__fill--{{ accent }}"
+                  style="width: {{ (row.amount / top * 100) | round(1) if top > 0 else 0 }}%"></span></span>
+            <span class="bars__value">{{ CURRENCY }}{{ row.amount | money }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="muted small" style="margin:0">Nothing recorded for {{ period.label }}.</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card__head">
+    <h2>{{ 'Credit entries' if is_income else 'Debit entries' }}</h2>
+    <span class="spacer"></span>
+    <form method="get" action="{{ url_for(request.endpoint) }}" class="filters__row" style="gap:.5rem">
+      {% for k, v in period.query_args().items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+      <select name="category" aria-label="Filter by category" style="max-width:200px">
+        <option value="">All categories</option>
+        {% for c in categories %}<option value="{{ c }}" {{ 'selected' if c == active_category }}>{{ c }}</option>{% endfor %}
+      </select>
+      <input type="search" name="q" value="{{ search }}" placeholder="Search description, party…" style="max-width:220px" aria-label="Search entries">
+      <button class="btn btn--sm" type="submit">Search</button>
+      {% if search or active_category %}
+        <a class="btn btn--sm btn--ghost" href="{{ url_for(request.endpoint, **period.query_args()) }}">Clear</a>
+      {% endif %}
+    </form>
+  </div>
+  <div class="card__body card__body--flush">
+    {% if rows %}
+      <div class="table-scroll">
+        <table class="ledger">
+          <thead>
+            <tr>
+              <th>Date</th><th>Day</th><th>Category</th><th>Description</th>
+              <th>Slot</th><th>{{ 'Received from' if is_income else 'Paid to' }}</th>
+              <th class="num">Amount</th>{% if is_admin %}<th class="col-actions">Actions</th>{% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in rows %}
+              <tr>
+                <td class="nowrap">{{ t.txn_date.strftime('%d %b %Y') }}</td>
+                <td class="nowrap small muted">{{ t.day_name[:3] }}</td>
+                <td class="nowrap"><span class="tag tag--{{ accent }}">{{ t.category }}</span></td>
+                <td>{{ t.description or '—' }}{% if t.notes %}<div class="small muted">{{ t.notes }}</div>{% endif %}</td>
+                <td class="nowrap small">{{ t.slot or '—' }}</td>
+                <td class="nowrap">{{ t.party or '—' }}</td>
+                <td class="num {{ 'v-pos' if is_income else 'v-neg' }}">{{ CURRENCY }}{{ t.amount | money }}</td>
+{% if is_admin %}
+                <td class="col-actions">
+                  <button class="btn btn--sm btn--ghost" type="button"
+                          data-edit-entry
+                          data-id="{{ t.id }}"
+                          data-kind="{{ t.kind }}"
+                          data-date="{{ t.txn_date.isoformat() }}"
+                          data-amount="{{ t.amount }}"
+                          data-category="{{ t.category }}"
+                          data-description="{{ t.description }}"
+                          data-slot="{{ t.slot }}"
+                          data-party="{{ t.party }}"
+                          data-notes="{{ t.notes }}">Edit</button>
+                  <form method="post" action="{{ url_for('transaction_delete', txn_id=t.id) }}"
+                        style="display:inline" data-confirm="Delete this entry of {{ CURRENCY }}{{ t.amount | money }}? This cannot be undone.">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="next" value="{{ request.full_path }}">
+                    <button class="btn btn--sm btn--danger" type="submit">Delete</button>
+                  </form>
+                </td>
+{% endif %}
+              </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="6">Total — {{ period.label }}</td>
+              <td class="num">{{ CURRENCY }}{{ subtotal | money }}</td>
+              {% if is_admin %}<td></td>{% endif %}
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <p>No {{ 'income' if is_income else 'expense' }} entries for {{ period.label }}{% if search or active_category %} matching your filters{% endif %}.</p>
+      </div>
+    {% endif %}
+  </div>
+</div>

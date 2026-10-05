@@ -1,0 +1,88 @@
+{# Single dialog used for both creating and editing an entry.
+   JS retargets the form action and prefills fields for edits. #}
+<dialog class="modal" id="entryModal" aria-labelledby="entryModalTitle">
+  <form method="post" action="{{ url_for('transaction_create') }}" id="entryForm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="next" value="{{ request.full_path }}">
+
+    <div class="modal__head">
+      <h2 id="entryModalTitle">New entry</h2>
+      <span class="spacer"></span>
+      <button class="btn btn--sm btn--ghost btn--icon" type="button" data-close-entry aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true" style="width:18px;height:18px"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <div class="modal__body">
+      <div class="form-grid">
+        <div class="field span-2">
+          <label>Type</label>
+          <div class="kind-toggle">
+            <label class="k-credit">
+              <input type="radio" name="kind" value="income" id="kindIncome" required>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" style="width:15px;height:15px"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+              Income (Credit)
+            </label>
+            <label class="k-debit">
+              <input type="radio" name="kind" value="expense" id="kindExpense" required>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" style="width:15px;height:15px"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+              Expense (Debit)
+            </label>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="e-date">Date</label>
+          <input type="date" id="e-date" name="txn_date" value="{{ today_iso }}" required>
+        </div>
+
+        <div class="field">
+          <label for="e-amount">Amount ({{ CURRENCY }})</label>
+          <input type="text" inputmode="decimal" id="e-amount" name="amount"
+                 placeholder="7000" autocomplete="off" required>
+        </div>
+
+        <div class="field span-2">
+          <label for="e-category">Category</label>
+          <select id="e-category" name="category" required>
+            <option value="">Select a category…</option>
+            <optgroup label="Income" id="optIncome">
+              {% for c in INCOME_CATEGORIES %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+            </optgroup>
+            <optgroup label="Expense" id="optExpense">
+              {% for c in EXPENSE_CATEGORIES %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+            </optgroup>
+          </select>
+        </div>
+
+        <div class="field span-2">
+          <label for="e-desc">Description</label>
+          <input type="text" id="e-desc" name="description" placeholder="7:00 AM slot" autocomplete="off">
+        </div>
+
+        <div class="field">
+          <label for="e-slot">Slot</label>
+          <input type="text" id="e-slot" name="slot" list="slotList" placeholder="7:00 AM" autocomplete="off">
+          <datalist id="slotList">
+            {% for s in SLOTS %}<option value="{{ s }}"></option>{% endfor %}
+          </datalist>
+        </div>
+
+        <div class="field">
+          <label for="e-party">Party / paid to</label>
+          <input type="text" id="e-party" name="party" placeholder="Customer" autocomplete="off">
+        </div>
+
+        <div class="field span-2">
+          <label for="e-notes">Notes</label>
+          <textarea id="e-notes" name="notes" placeholder="Optional"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal__foot">
+      <button class="btn btn--ghost" type="button" data-close-entry>Cancel</button>
+      <button class="btn btn--primary" type="submit" id="entrySubmit">Save entry</button>
+    </div>
+  </form>
+</dialog>

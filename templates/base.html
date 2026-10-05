@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Ledger{% endblock %} · Bails Cricket Ground</title>
+<meta name="description" content="Income and expenditure ledger for Bails Cricket Ground.">
+<meta name="theme-color" content="#17593C">
+<link rel="icon" href="{{ url_for('static', filename='img/favicon.ico') }}" sizes="any">
+<link rel="apple-touch-icon" href="{{ url_for('static', filename='img/apple-touch-icon.png') }}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+<script>
+  // Apply the saved theme before first paint so there is no flash.
+  try {
+    var t = localStorage.getItem('bails-theme');
+    if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+</script>
+</head>
+<body data-currency="{{ CURRENCY }}">
+<a class="skip-link" href="#main">Skip to content</a>
+
+{% if session.get('authed') %}
+<header class="topbar">
+  <div class="topbar__inner">
+    <a class="brand" href="{{ url_for('dashboard') }}">
+      <img class="brand__logo" src="{{ url_for('static', filename='img/bails-logo-256.png') }}"
+           alt="Bail's Cricket Ground logo" width="46" height="46">
+      <span class="brand__text">
+        <span class="brand__name">BAIL&rsquo;S CRICKET GROUND</span>
+        <span class="brand__sub">Income &amp; Expenditure Ledger{% if role_label %} &middot; {{ role_label }}{% endif %}</span>
+      </span>
+    </a>
+    <span class="topbar__spacer"></span>
+    <div class="topbar__actions">
+      <button class="btn btn--sm btn-header" type="button" id="themeToggle" aria-label="Switch colour theme" title="Switch colour theme">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="4"></circle>
+          <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"></path>
+        </svg>
+      </button>
+      {% if is_admin %}
+        <button class="btn btn--sm btn--primary" type="button" data-open-entry data-kind="income">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true">
+            <path d="M12 5v14M5 12h14"></path>
+          </svg>
+          New entry
+        </button>
+      {% else %}
+        <span class="role-badge" title="Partners have read-only access">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"/><circle cx="12" cy="12" r="3"/>
+          </svg>
+          Partner &middot; view only
+        </span>
+      {% endif %}
+      <form method="post" action="{{ url_for('logout') }}" style="margin:0">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn--sm btn-header" type="submit">Sign out</button>
+      </form>
+    </div>
+  </div>
+  <nav class="nav" aria-label="Sections">
+    {% set tab = request.endpoint %}
+    {% set keep = period.query_args() if period is defined else {} %}
+    <a class="nav__link {{ 'nav__link--active' if tab == 'dashboard' }}" href="{{ url_for('dashboard', **keep) }}"
+       {% if tab == 'dashboard' %}aria-current="page"{% endif %}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 13h8V3H3zM13 21h8V11h-8zM3 21h8v-5H3zM13 8h8V3h-8z"/></svg>
+      Dashboard
+    </a>
+    <a class="nav__link {{ 'nav__link--active' if tab == 'income' }}" href="{{ url_for('income', **keep) }}"
+       {% if tab == 'income' %}aria-current="page"{% endif %}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+      Income &middot; Credit
+    </a>
+    <a class="nav__link {{ 'nav__link--active' if tab == 'expenses' }}" href="{{ url_for('expenses', **keep) }}"
+       {% if tab == 'expenses' %}aria-current="page"{% endif %}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+      Expenses &middot; Debit
+    </a>
+    <a class="nav__link {{ 'nav__link--active' if tab == 'partners' }}" href="{{ url_for('partners', **keep) }}"
+       {% if tab == 'partners' %}aria-current="page"{% endif %}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      Partner Profit
+    </a>
+    <a class="nav__link {{ 'nav__link--active' if tab == 'transactions' }}" href="{{ url_for('transactions', **keep) }}"
+       {% if tab == 'transactions' %}aria-current="page"{% endif %}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+      All Transactions
+    </a>
+  </nav>
+</header>
+{% endif %}
+
+<main class="wrap" id="main">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="flashes" role="status" aria-live="polite">
+        {% for category, message in messages %}
+          <div class="flash flash--{{ category }}">
+            {% if category == 'success' %}
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+            {% elif category == 'error' %}
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
+            {% else %}
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+            {% endif %}
+            <span>{{ message }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  {% block content %}{% endblock %}
+</main>
+
+{# The entry dialog only exists for Admin; partners cannot create or edit. #}
+{% if is_admin %}
+  {% include "_entry_modal.html" %}
+{% endif %}
+
+<script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

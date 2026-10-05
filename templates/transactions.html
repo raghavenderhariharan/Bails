@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}All Transactions{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>All Transactions</h1>
+    <div class="page-head__sub">{{ period.label }} · {{ rows | length }} entr{{ 'y' if rows | length == 1 else 'ies' }} with running balance</div>
+  </div>
+  <span class="topbar__spacer"></span>
+  {% if is_admin %}
+    <button class="btn btn--primary" type="button" data-open-entry data-kind="income">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      New entry
+    </button>
+  {% endif %}
+</div>
+
+{% include "_filters.html" %}
+
+<div class="grid grid--kpi" style="margin-bottom:1rem">
+  <div class="kpi kpi--credit">
+    <div class="kpi__label">Total credit</div>
+    <div class="kpi__value kpi__value--credit"><span class="cur">{{ CURRENCY }}</span>{{ summary.income | money }}</div>
+  </div>
+  <div class="kpi kpi--debit">
+    <div class="kpi__label">Total debit</div>
+    <div class="kpi__value kpi__value--debit"><span class="cur">{{ CURRENCY }}</span>{{ summary.expense | money }}</div>
+  </div>
+  <div class="kpi kpi--net">
+    <div class="kpi__label">Net</div>
+    <div class="kpi__value {{ 'v-neg' if summary.net < 0 else '' }}"><span class="cur">{{ CURRENCY }}</span>{{ summary.net | money }}</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card__head">
+    <h2>Ledger</h2>
+    <span class="spacer"></span>
+    <form method="get" action="{{ url_for('transactions') }}" class="filters__row" style="gap:.5rem">
+      {% for k, v in period.query_args().items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+      <select name="kind" aria-label="Filter by type" style="max-width:170px">
+        <option value="">Credit &amp; debit</option>
+        <option value="income" {{ 'selected' if kind_filter == 'income' }}>Credit only</option>
+        <option value="expense" {{ 'selected' if kind_filter == 'expense' }}>Debit only</option>
+      </select>
+      <input type="search" name="q" value="{{ search }}" placeholder="Search…" style="max-width:200px" aria-label="Search entries">
+      <button class="btn btn--sm" type="submit">Search</button>
+      {% if search or kind_filter %}
+        <a class="btn btn--sm btn--ghost" href="{{ url_for('transactions', **period.query_args()) }}">Clear</a>
+      {% endif %}
+    </form>
+  </div>
+  <div class="card__body card__body--flush">
+    {% if rows %}
+      <div class="table-scroll">
+        <table class="ledger">
+          <thead>
+            <tr>
+              <th>Date</th><th>Day</th><th>Type</th><th>Category</th><th>Description</th>
+              <th>Party</th><th class="num">Credit</th><th class="num">Debit</th>
+              <th class="num" title="Ledger balance after this entry, counting every entry in the period">Balance</th>{% if is_admin %}<th class="col-actions">Actions</th>{% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in rows %}
+              <tr>
+                <td class="nowrap">{{ t.txn_date.strftime('%d %b %Y') }}</td>
+                <td class="nowrap small muted">{{ t.day_name[:3] }}</td>
+                <td class="nowrap">
+                  {% if t.kind == INCOME %}
+                    <span class="tag tag--credit">Credit</span>
+                  {% else %}
+                    <span class="tag tag--debit">Debit</span>
+                  {% endif %}
+                </td>
+                <td class="nowrap small">{{ t.category }}</td>
+                <td>{{ t.description or '—' }}</td>
+                <td class="nowrap small">{{ t.party or '—' }}</td>
+                <td class="num v-pos">{{ (CURRENCY ~ (t.amount | money)) if t.kind == INCOME else '' }}</td>
+                <td class="num v-neg">{{ (CURRENCY ~ (t.amount | money)) if t.kind == EXPENSE else '' }}</td>
+                <td class="num {{ 'v-neg' if t.running_balance < 0 else '' }}"><strong>{{ CURRENCY }}{{ t.running_balance | money }}</strong></td>
+{% if is_admin %}
+                <td class="col-actions">
+                  <button class="btn btn--sm btn--ghost" type="button"
+                          data-edit-entry data-id="{{ t.id }}" data-kind="{{ t.kind }}"
+                          data-date="{{ t.txn_date.isoformat() }}" data-amount="{{ t.amount }}"
+                          data-category="{{ t.category }}" data-description="{{ t.description }}"
+                          data-slot="{{ t.slot }}" data-party="{{ t.party }}" data-notes="{{ t.notes }}">Edit</button>
+                  <form method="post" action="{{ url_for('transaction_delete', txn_id=t.id) }}"
+                        style="display:inline" data-confirm="Delete this entry of {{ CURRENCY }}{{ t.amount | money }}? This cannot be undone.">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="next" value="{{ request.full_path }}">
+                    <button class="btn btn--sm btn--danger" type="submit">Delete</button>
+                  </form>
+                </td>
+{% endif %}
+              </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="6">
+                {% if filtered %}Totals — rows shown{% else %}Totals — {{ period.label }}{% endif %}
+              </td>
+              <td class="num">{{ CURRENCY }}{{ shown.income | money }}</td>
+              <td class="num">{{ CURRENCY }}{{ shown.expense | money }}</td>
+              <td class="num">{{ CURRENCY }}{{ shown.net | money }}</td>
+              {% if is_admin %}<td></td>{% endif %}
+            </tr>
+            {% if filtered %}
+              <tr>
+                <td colspan="6" class="small muted">Totals — {{ period.label }} (all entries)</td>
+                <td class="num small muted">{{ CURRENCY }}{{ summary.income | money }}</td>
+                <td class="num small muted">{{ CURRENCY }}{{ summary.expense | money }}</td>
+                <td class="num small muted">{{ CURRENCY }}{{ summary.net | money }}</td>
+                {% if is_admin %}<td></td>{% endif %}
+              </tr>
+            {% endif %}
+          </tfoot>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+        <p>No transactions for {{ period.label }}.</p>
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
