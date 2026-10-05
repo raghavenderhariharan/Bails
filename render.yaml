@@ -1,5 +1,10 @@
-# Render blueprint: a web service plus a free Postgres instance.
+# Render blueprint for the Bails ledger web service.
 # Deploy by pointing Render at this repository ("New +" -> "Blueprint").
+#
+# The database is external (e.g. a free Neon Postgres that does not expire):
+# paste its connection string into DATABASE_URL when Render prompts. To use
+# Render's own free Postgres instead, see DEPLOY.md (Option B) -- note it is
+# deleted ~30 days after creation.
 services:
   - type: web
     name: bails-ledger
@@ -25,12 +30,6 @@ services:
         value: "1"                   # Render puts exactly one proxy in front;
                                      # lets the login throttle see real client IPs
       - key: DATABASE_URL
-        fromDatabase:
-          name: bails-ledger-db
-          property: connectionString
-
-databases:
-  - name: bails-ledger-db
-    plan: free
-    databaseName: bails_ledger
-    user: bails
+        sync: false                  # paste your external Postgres connection
+                                     # string (e.g. from Neon) in the dashboard.
+                                     # postgres:// URLs are normalised in config.py.

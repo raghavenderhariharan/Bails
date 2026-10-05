@@ -94,14 +94,15 @@ git-ignored, so your ledger is never committed.
 Full walkthrough, including the database choice and how to load your data:
 **[DEPLOY.md](DEPLOY.md)**.
 
-The short version: push to GitHub, then Render → **New +** → **Blueprint** →
-pick the repo → **Apply**. `render.yaml` defines the service and prompts you for
-`ADMIN_PASSWORD` and `PARTNER_PASSCODE`; `SECRET_KEY` is generated.
+The short version: create a free [Neon](https://neon.com) Postgres, then Render
+→ **New +** → **Blueprint** → pick the repo → **Apply**. `render.yaml` defines
+the service and prompts you for `ADMIN_PASSWORD`, `PARTNER_PASSCODE` and
+`DATABASE_URL` (paste the Neon string); `SECRET_KEY` is generated.
 
-> ⚠️ **Render's free Postgres is deleted 30 days after creation**, with no
-> backups. For a ledger you intend to keep, use a free
-> [Neon](https://neon.com) database instead and set `DATABASE_URL` to its
-> connection string — the app needs no code change. DEPLOY.md has both paths.
+> ⚠️ The blueprint uses an **external** database on purpose. Render's own free
+> Postgres is **deleted 30 days after creation** with no backups, so for a
+> ledger you intend to keep, use Neon (free, non-expiring) — the app needs no
+> code change. DEPLOY.md covers both paths.
 
 ## Configuration
 

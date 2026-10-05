@@ -32,21 +32,19 @@ The app reads `DATABASE_URL`, so any Postgres works with no code change.
 3. Copy the **connection string**. It looks like:
    `postgresql://user:pass@ep-xxx.aws.neon.tech/neondb?sslmode=require`
 
-### 2. Edit `render.yaml`
+### 2. `render.yaml` is already set up for this
 
-Delete the `databases:` block at the bottom, and replace the `DATABASE_URL`
-entry so you supply the value yourself:
+The committed blueprint uses an **external** database: there is no
+Render-provisioned `databases:` block, and `DATABASE_URL` is marked
+`sync: false`, so Render asks you for it in the dashboard (step 3).
 
 ```yaml
       - key: DATABASE_URL
-        sync: false        # paste the Neon connection string in the dashboard
+        sync: false        # paste your Neon connection string in the dashboard
 ```
 
-Commit and push:
-
-```bash
-git add render.yaml && git commit -m "Use external Postgres" && git push
-```
+Nothing to change — go straight to step 3. (To use Render's own free Postgres
+instead, see **Option B** below.)
 
 ### 3. Deploy
 
@@ -89,12 +87,28 @@ It prints what it imported. Reload the site and the figures appear.
 
 ---
 
-## Option B — one-click, using Render's own free Postgres
+## Option B — using Render's own free Postgres
 
-Change nothing. **New +** → **Blueprint** → pick the repo → **Apply**. The
-blueprint creates both the service and `bails-ledger-db`, and wires
-`DATABASE_URL` automatically. You only enter `ADMIN_PASSWORD` and
-`PARTNER_PASSCODE`.
+The blueprint ships with an external database (Option A), so to have Render
+create and wire a Postgres for you, add this block back to the end of
+`render.yaml` and change the `DATABASE_URL` entry to match:
+
+```yaml
+      - key: DATABASE_URL
+        fromDatabase:
+          name: bails-ledger-db
+          property: connectionString
+
+databases:
+  - name: bails-ledger-db
+    plan: free
+    databaseName: bails_ledger
+    user: bails
+```
+
+Commit, push, then **New +** → **Blueprint** → pick the repo → **Apply**. Render
+creates both the service and the database and wires `DATABASE_URL` automatically;
+you only enter `ADMIN_PASSWORD` and `PARTNER_PASSCODE`.
 
 Load the data the same way as step 4 above, using the database's **External
 Database URL** from its Render page. If the connection is refused, open the
