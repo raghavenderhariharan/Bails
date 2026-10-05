@@ -66,24 +66,32 @@ instead, see **Option B** below.)
 Your URL will be `https://bails-ledger.onrender.com` (Render may add a suffix if
 the name is taken).
 
-### 4. Load your ledger
+### 4. Load your ledger into the database
 
-Free Render services have no shell, so run the import **from your laptop**
-against the same database:
+Free Render services have no shell, so seed the database **from your laptop**,
+pointing at the same Neon database you gave Render. Paste your own connection
+string in place of the placeholder — the full string (`sslmode` and
+`channel_binding` included) is on your Neon dashboard under **Connect**:
 
 ```bash
 cd ~/Documents/BailsLedger
 source .venv/bin/activate
 
-export DATABASE_URL='postgresql://user:pass@ep-xxx.aws.neon.tech/neondb?sslmode=require'
+# Your Neon connection string — keep it in the shell only, never in a file.
+export DATABASE_URL='postgresql://USER:PASSWORD@ep-xxx-pooler.REGION.aws.neon.tech/neondb?sslmode=require&channel_binding=require'
 python import_excel.py BailsLedgerBook.xlsx --replace
 unset DATABASE_URL
 ```
 
-It prints what it imported. Reload the site and the figures appear.
+It prints what it imported (10 rows: ₹51,000 income, ₹7,000 expense) and seeds
+the six partners. Reload the site and the figures appear. Re-run it any time you
+want to reset the database to match the spreadsheet.
 
-> `unset DATABASE_URL` matters — otherwise your next local run talks to the
-> production database instead of `instance/bails_ledger.db`.
+> **Never paste the real connection string into a tracked file** (this repo is
+> public). Keep it in the shell, as above, or in your git-ignored `.env`.
+>
+> `unset DATABASE_URL` at the end matters — otherwise your next local run talks
+> to the production database instead of `instance/bails_ledger.db`.
 
 ---
 
