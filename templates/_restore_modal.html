@@ -1,0 +1,40 @@
+{# Admin-only restore from a backup JSON file. Destructive: requires typing
+   RESTORE to enable the button, and the server re-checks it. #}
+<dialog class="modal" id="restoreModal" aria-labelledby="restoreModalTitle">
+  <form method="post" action="{{ url_for('admin_restore') }}" enctype="multipart/form-data" id="restoreForm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="next" value="{{ request.full_path }}">
+
+    <div class="modal__head">
+      <h2 id="restoreModalTitle">Restore from backup</h2>
+      <span class="spacer"></span>
+      <button class="btn btn--sm btn--ghost btn--icon" type="button" data-close-restore aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true" style="width:18px;height:18px"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <div class="modal__body">
+      <div class="banner" style="margin-bottom:1.1rem">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+        <span>This <strong>replaces everything</strong> in the current database &mdash;
+          all transactions, partners and watchmen &mdash; with the contents of the file.
+          It cannot be undone. Download a fresh backup first if you are unsure.</span>
+      </div>
+      <div class="form-grid">
+        <div class="field span-2">
+          <label for="r-file">Backup file (.json)</label>
+          <input type="file" id="r-file" name="backup_file" accept="application/json,.json" required>
+        </div>
+        <div class="field span-2">
+          <label for="r-confirm">Type <strong>RESTORE</strong> to confirm</label>
+          <input type="text" id="r-confirm" name="confirm" autocomplete="off" placeholder="RESTORE" required>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal__foot">
+      <button class="btn btn--ghost" type="button" data-close-restore>Cancel</button>
+      <button class="btn btn--debit" type="submit" id="restoreSubmit" disabled>Replace all data</button>
+    </div>
+  </form>
+</dialog>

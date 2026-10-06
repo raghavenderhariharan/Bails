@@ -179,6 +179,12 @@ Restore **replaces all data** in the target database, so it asks you to confirm
 first. Because Neon's free tier has no backups of its own, downloading this JSON
 every so often is your safety net.
 
+**In the browser (Admin):** the filter bar also has a **Restore** button next to
+Backup. It opens a dialog to upload a backup `.json`, makes you type `RESTORE` to
+enable the button, and then replaces everything — the same all-or-nothing restore
+as the CLI, but without leaving the site. Use it to roll a Render/Neon database
+back to a saved backup directly.
+
 ## If something goes wrong
 
 | Symptom | Cause and fix |

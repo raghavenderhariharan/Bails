@@ -123,9 +123,10 @@
   {% block content %}{% endblock %}
 </main>
 
-{# The entry dialog only exists for Admin; partners cannot create or edit. #}
+{# These dialogs only exist for Admin; partners cannot create, edit or restore. #}
 {% if is_admin %}
   {% include "_entry_modal.html" %}
+  {% include "_restore_modal.html" %}
 {% endif %}
 
 <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>

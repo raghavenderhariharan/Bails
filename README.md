@@ -17,7 +17,7 @@ The start screen asks **how** you are signing in:
 
 | Role | Password | Can do |
 |---|---|---|
-| **Admin** | `Admin123` | Everything: add, edit and delete entries, change the equity split, download a full backup |
+| **Admin** | `Admin123` | Everything: add, edit and delete entries, change the equity split, download **and restore** a full backup |
 | **Partner** | none | View only: every tab, every filter, Excel export — no changes |
 
 Partners get a `Partner · view only` badge in the header, and all the add/edit/
@@ -281,3 +281,9 @@ attempt 9, where previously none of the 30 were blocked.
 
 This is a single-operator tool, so there are no separate user accounts. If you
 later need per-partner logins with read-only access, that is the natural next step.
+
+
+# Restore into Neon (production):
+export DATABASE_URL='postgresql://…neon.tech/neondb?sslmode=require&channel_binding=require'
+python restore_backup.py bails-ledger-backup-2026-10-06.json
+unset DATABASE_URL

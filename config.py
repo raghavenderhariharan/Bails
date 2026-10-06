@@ -119,6 +119,11 @@ class Config:
     DRIVE_EXPORT_DIR = os.environ.get("DRIVE_EXPORT_DIR", "").strip()
     DRIVE_EXPORT_FILENAME = os.environ.get("DRIVE_EXPORT_FILENAME", "BailsLedgerBook.xlsx")
 
+    # Cap upload size (the restore endpoint accepts a backup file). A ledger
+    # backup is a few KB; 16 MB is far more than any real one and keeps a
+    # runaway upload from exhausting memory.
+    MAX_CONTENT_LENGTH = 16 * 1024 * 1024
+
     # How many reverse proxies sit in front of the app. Render uses one. Left at
     # 0, X-Forwarded-* headers are ignored entirely, because a client can forge
     # them and a forged value must never be able to reset the login throttle.

@@ -908,6 +908,54 @@ def _register_routes(app: Flask) -> None:
             },
         )
 
+    @app.post("/admin/restore")
+    @admin_required
+    def admin_restore():
+        """Replace the whole database from an uploaded backup JSON file.
+
+        Destructive and admin-only, so it is gated three ways: the admin role,
+        a type-the-word confirmation, and restore_backup()'s own all-or-nothing
+        transaction (a bad file changes nothing).
+        """
+        import json
+        from backup import restore_backup
+
+        target = request.form.get("next")
+        if (request.form.get("confirm") or "").strip().upper() != "RESTORE":
+            flash("Type RESTORE to confirm before restoring.", "error")
+            return _safe_redirect(target)
+
+        upload = request.files.get("backup_file")
+        if upload is None or not upload.filename:
+            flash("Choose a backup .json file to restore.", "error")
+            return _safe_redirect(target)
+
+        raw = upload.read()
+        try:
+            data = json.loads(raw.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            flash("That file is not valid JSON \u2014 is it a ledger backup?", "error")
+            return _safe_redirect(target)
+
+        try:
+            counts = restore_backup(data)
+        except ValueError as exc:
+            db.session.rollback()
+            flash(f"Restore failed: {exc} Nothing was changed.", "error")
+            return _safe_redirect(target)
+        except Exception as exc:  # pragma: no cover - defensive
+            db.session.rollback()
+            app.logger.warning("restore failed: %s", exc)
+            flash("Restore failed. Nothing was changed.", "error")
+            return _safe_redirect(target)
+
+        flash(
+            f"Restored {counts['transactions']} transactions, {counts['partners']} partners "
+            f"and {counts.get('watchmen', 0)} watchmen from the backup.",
+            "success",
+        )
+        return _safe_redirect(target)
+
     # ---------------- ops ----------------
 
     @app.get("/healthz")
@@ -933,6 +981,11 @@ def _register_routes(app: Flask) -> None:
             "error.html", code=403,
             message="Partner access is view-only. Sign in as Admin to add, edit or delete entries.",
         ), 403
+
+    @app.errorhandler(413)
+    def too_large(_):
+        flash("That file is too large to be a ledger backup.", "error")
+        return redirect(url_for("dashboard") if session.get("authed") else url_for("login")), 413
 
     @app.errorhandler(404)
     def not_found(_):

@@ -154,3 +154,103 @@ def test_restore_rejects_a_newer_format(app):
     with app.app_context():
         with pytest.raises(ValueError, match="newer"):
             restore_backup({"format": 999, "partners": [], "transactions": []})
+
+
+# ------------------------ restore via web upload --------------------------- #
+
+import io  # noqa: E402
+
+
+def _backup_bytes(client):
+    return client.get("/admin/backup.json").get_data()
+
+
+def test_restore_button_and_modal_admin_only(app):
+    body = admin(app).get("/").get_data(as_text=True)
+    assert "data-open-restore" in body and "restoreModal" in body
+    pbody = partner(app).get("/").get_data(as_text=True)
+    assert "data-open-restore" not in pbody and "restoreModal" not in pbody
+
+
+def test_admin_restore_replaces_data(app):
+    client = admin(app)
+    backup = _backup_bytes(client)   # 3 txns, 6 partners in this fixture
+
+    # Wipe everything, then restore from the file.
+    from models import Transaction, db
+    with app.app_context():
+        Transaction.query.delete(); db.session.commit()
+        assert Transaction.query.count() == 0
+
+    page = client.get("/").get_data(as_text=True)
+    data = {
+        "csrf_token": _csrf(page), "confirm": "RESTORE", "next": "/",
+        "backup_file": (io.BytesIO(backup), "bk.json"),
+    }
+    r = client.post("/admin/restore", data=data, content_type="multipart/form-data",
+                    follow_redirects=True)
+    assert r.status_code == 200
+    assert "Restored 3 transactions" in r.get_data(as_text=True)
+    with app.app_context():
+        assert Transaction.query.count() == 3
+
+
+def test_restore_requires_the_confirm_word(app):
+    client = admin(app)
+    backup = _backup_bytes(client)
+    from models import Transaction, db
+    with app.app_context():
+        Transaction.query.delete(); db.session.commit()
+    page = client.get("/").get_data(as_text=True)
+    r = client.post("/admin/restore", data={
+        "csrf_token": _csrf(page), "confirm": "yes", "next": "/",
+        "backup_file": (io.BytesIO(backup), "bk.json"),
+    }, content_type="multipart/form-data", follow_redirects=True)
+    assert "Type RESTORE to confirm" in r.get_data(as_text=True)
+    with app.app_context():
+        assert Transaction.query.count() == 0   # nothing restored
+
+
+def test_restore_rejects_non_json(app):
+    client = admin(app)
+    page = client.get("/").get_data(as_text=True)
+    r = client.post("/admin/restore", data={
+        "csrf_token": _csrf(page), "confirm": "RESTORE", "next": "/",
+        "backup_file": (io.BytesIO(b"not json at all"), "bad.json"),
+    }, content_type="multipart/form-data", follow_redirects=True)
+    assert "not valid JSON" in r.get_data(as_text=True)
+
+
+def test_restore_rejects_a_non_backup_json_atomically(app):
+    client = admin(app)
+    from models import Transaction
+    with app.app_context():
+        before = Transaction.query.count()
+    page = client.get("/").get_data(as_text=True)
+    r = client.post("/admin/restore", data={
+        "csrf_token": _csrf(page), "confirm": "RESTORE", "next": "/",
+        "backup_file": (io.BytesIO(b'{"hello":"world"}'), "x.json"),
+    }, content_type="multipart/form-data", follow_redirects=True)
+    assert "Restore failed" in r.get_data(as_text=True)
+    with app.app_context():
+        assert Transaction.query.count() == before   # unchanged
+
+
+def test_restore_requires_a_file(app):
+    client = admin(app)
+    page = client.get("/").get_data(as_text=True)
+    r = client.post("/admin/restore", data={
+        "csrf_token": _csrf(page), "confirm": "RESTORE", "next": "/",
+    }, content_type="multipart/form-data", follow_redirects=True)
+    assert "Choose a backup" in r.get_data(as_text=True)
+
+
+def test_partner_cannot_restore(app):
+    client = partner(app)
+    backup = admin(app).get("/admin/backup.json").get_data()
+    page = client.get("/").get_data(as_text=True)
+    r = client.post("/admin/restore", data={
+        "csrf_token": _csrf(page), "confirm": "RESTORE", "next": "/",
+        "backup_file": (io.BytesIO(backup), "bk.json"),
+    }, content_type="multipart/form-data")
+    assert r.status_code == 403

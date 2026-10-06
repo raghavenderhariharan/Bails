@@ -146,3 +146,35 @@
     }
   });
 })();
+
+/* Admin restore-from-backup dialog. Enables the destructive button only once
+   the admin types RESTORE; the server re-checks it regardless. */
+(function () {
+  "use strict";
+  var modal = document.getElementById("restoreModal");
+  if (!modal) return;
+
+  var confirmInput = document.getElementById("r-confirm");
+  var submit = document.getElementById("restoreSubmit");
+
+  function open() { if (modal.showModal) modal.showModal(); else modal.setAttribute("open", ""); }
+  function close() { if (modal.close) modal.close(); else modal.removeAttribute("open"); }
+
+  function syncButton() {
+    submit.disabled = (confirmInput.value || "").trim().toUpperCase() !== "RESTORE";
+  }
+
+  document.addEventListener("click", function (event) {
+    if (event.target.closest("[data-open-restore]")) {
+      var form = document.getElementById("restoreForm");
+      if (form) form.reset();
+      syncButton();
+      open();
+      return;
+    }
+    if (event.target.closest("[data-close-restore]")) close();
+  });
+
+  if (confirmInput) confirmInput.addEventListener("input", syncButton);
+  modal.addEventListener("click", function (event) { if (event.target === modal) close(); });
+})();

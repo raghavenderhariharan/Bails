@@ -106,6 +106,11 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></svg>
         Backup
       </a>
+      <button class="btn btn--sm btn--ghost" type="button" data-open-restore
+              title="Replace the whole database from a backup file">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+        Restore
+      </button>
     {% endif %}
     {% if is_admin and drive_sync_ready %}
       <form method="post" action="{{ url_for('export_to_drive', **period.query_args()) }}" style="margin:0">
