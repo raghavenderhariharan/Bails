@@ -118,3 +118,52 @@ class Setting(db.Model):
             row.value = value
         else:
             db.session.add(Setting(key=key, value=value))
+
+
+class Watchman(db.Model):
+    """A watchman on a fixed monthly salary.
+
+    Petty cash a watchman takes during the month is recorded against them (see
+    ``WatchmanPettyCash``) and deducted from the salary to work out the net
+    amount actually payable. This is a payroll-settlement aid and is kept
+    separate from the income/expense ledger.
+    """
+
+    __tablename__ = "watchmen"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False, unique=True)
+    monthly_salary = db.Column(db.Numeric(12, 2), nullable=False, default=Decimal("20000"))
+    sort_order = db.Column(db.Integer, nullable=False, default=0)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+
+    petty_cash = db.relationship(
+        "WatchmanPettyCash", backref="watchman", cascade="all, delete-orphan", lazy="dynamic"
+    )
+
+    def __repr__(self):  # pragma: no cover - debugging aid
+        return f"<Watchman {self.name} {self.monthly_salary}/mo>"
+
+
+class WatchmanPettyCash(db.Model):
+    """One petty-cash amount taken by a watchman, deducted from their salary."""
+
+    __tablename__ = "watchman_petty_cash"
+
+    id = db.Column(db.Integer, primary_key=True)
+    watchman_id = db.Column(
+        db.Integer, db.ForeignKey("watchmen.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    entry_date = db.Column(db.Date, nullable=False, index=True, default=date.today)
+    # Always positive; it is subtracted from the salary.
+    amount = db.Column(db.Numeric(12, 2), nullable=False, default=Decimal("0"))
+    note = db.Column(db.String(255), nullable=False, default="")
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=_utcnow)
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow)
+
+    __table_args__ = (
+        db.CheckConstraint("amount >= 0", name="ck_watchman_petty_cash_non_negative"),
+    )
+
+    def __repr__(self):  # pragma: no cover - debugging aid
+        return f"<WatchmanPettyCash w={self.watchman_id} {self.entry_date} {self.amount}>"

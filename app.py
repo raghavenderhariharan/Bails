@@ -25,11 +25,12 @@ from config import Config
 from finance import (
     MONTH_NAMES, apply_period, balance_as_of, category_breakdown, data_bounds, fmt_money,
     opening_balance, parse_period, partner_shares, q2, totals, trend_window,
+    watchman_settlement,
 )
 from models import (
     EXPENSE, EXPENSE_CATEGORIES, INCOME, INCOME_CATEGORIES, KINDS,
     ROLE_ADMIN, ROLE_LABELS, ROLE_PARTNER, ROLES, SLOTS,
-    Partner, Setting, Transaction, db,
+    Partner, Setting, Transaction, Watchman, WatchmanPettyCash, db,
 )
 
 csrf = CSRFProtect()
@@ -80,6 +81,12 @@ DEFAULT_PARTNERS = [
     ("DRR sir", Decimal("10")),
 ]
 
+# Two watchmen, each on a fixed monthly salary. Editable on the Watchmen tab.
+DEFAULT_WATCHMEN = [
+    ("Watchman 1", Decimal("20000")),
+    ("Watchman 2", Decimal("20000")),
+]
+
 
 def _bootstrap(app: Flask) -> None:
     """Create tables and seed defaults, safely under multiple Gunicorn workers.
@@ -106,6 +113,10 @@ def _bootstrap(app: Flask) -> None:
                 db.session.add(Partner(name=name, equity_pct=equity, sort_order=index, is_active=True))
         if db.session.get(Setting, "opening_balance") is None:
             db.session.add(Setting(key="opening_balance", value="0"))
+        if db.session.query(Watchman.id).first() is None:
+            for index, (name, salary) in enumerate(DEFAULT_WATCHMEN):
+                db.session.add(Watchman(name=name, monthly_salary=salary,
+                                        sort_order=index, is_active=True))
         db.session.commit()
     except IntegrityError:
         # A concurrent worker seeded first. Its rows are equivalent to ours.
@@ -568,6 +579,128 @@ def _register_routes(app: Flask) -> None:
         )
 
     # ---------------- partners ----------------
+
+    # ---------------- watchmen ----------------
+
+    @app.get("/watchmen")
+    @login_required
+    def watchmen():
+        period = parse_period(request.args)
+        settlement = watchman_settlement(period)
+        entries_query = WatchmanPettyCash.query
+        if period.start:
+            entries_query = entries_query.filter(WatchmanPettyCash.entry_date >= period.start)
+        if period.end:
+            entries_query = entries_query.filter(WatchmanPettyCash.entry_date <= period.end)
+        entries = entries_query.order_by(
+            WatchmanPettyCash.entry_date.asc(), WatchmanPettyCash.id.asc()
+        ).all()
+        names = {w.id: w.name for w in Watchman.query.all()}
+        return render_template(
+            "watchmen.html",
+            settlement=settlement,
+            entries=entries,
+            watchman_names=names,
+            all_watchmen=Watchman.query.order_by(Watchman.sort_order, Watchman.id).all(),
+            **_filter_context(period),
+        )
+
+    @app.post("/watchmen/save")
+    @admin_required
+    def watchmen_save():
+        rows = Watchman.query.order_by(Watchman.sort_order, Watchman.id).all()
+        seen = set()
+        try:
+            for w in rows:
+                name = _clip(request.form.get(f"name_{w.id}"), 120)
+                if not name:
+                    raise FormError("Watchman names cannot be blank.")
+                if name.lower() in seen:
+                    raise FormError(f"Duplicate watchman name: {name}")
+                seen.add(name.lower())
+                raw = (request.form.get(f"salary_{w.id}") or "0").strip().replace(",", "")
+                try:
+                    salary = Decimal(raw or "0")
+                except (InvalidOperation, ValueError):
+                    raise FormError(f"Salary for {name} must be a number.")
+                if not salary.is_finite() or salary < 0 or salary >= Decimal("100000000"):
+                    raise FormError(f"Salary for {name} looks wrong \u2014 check it.")
+                w.name = name
+                w.monthly_salary = q2(salary)
+                w.is_active = request.form.get(f"active_{w.id}") == "on"
+        except FormError as exc:
+            db.session.rollback()
+            flash(str(exc), "error")
+            return _safe_redirect(request.form.get("next"), "watchmen")
+        try:
+            final_names = {w.id: w.name for w in rows}
+            for w in rows:
+                w.name = f"\u0000tmp-{w.id}"
+            db.session.flush()
+            for w in rows:
+                w.name = final_names[w.id]
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            flash("Those watchman names clash with each other. Please make them unique.", "error")
+            return _safe_redirect(request.form.get("next"), "watchmen")
+        flash("Watchmen updated.", "success")
+        return _safe_redirect(request.form.get("next"), "watchmen")
+
+    def _petty_from_form(form):
+        try:
+            watchman_id = int(form.get("watchman_id") or 0)
+        except (TypeError, ValueError):
+            raise FormError("Choose a watchman.")
+        if db.session.get(Watchman, watchman_id) is None:
+            raise FormError("Choose a watchman.")
+        return {
+            "watchman_id": watchman_id,
+            "entry_date": _parse_date(form.get("entry_date")),
+            "amount": _parse_amount(form.get("amount")),
+            "note": _clip(form.get("note"), 255),
+        }
+
+    @app.post("/watchmen/petty/new")
+    @admin_required
+    def watchman_petty_create():
+        try:
+            payload = _petty_from_form(request.form)
+        except FormError as exc:
+            flash(str(exc), "error")
+            return _safe_redirect(request.form.get("next"), "watchmen")
+        db.session.add(WatchmanPettyCash(**payload))
+        db.session.commit()
+        flash(f"Petty cash of {app.config['CURRENCY_SYMBOL']}{fmt_money(payload['amount'])} recorded.", "success")
+        return _safe_redirect(request.form.get("next"), "watchmen")
+
+    @app.post("/watchmen/petty/<int:entry_id>/edit")
+    @admin_required
+    def watchman_petty_update(entry_id: int):
+        entry = db.session.get(WatchmanPettyCash, entry_id)
+        if entry is None:
+            abort(404)
+        try:
+            payload = _petty_from_form(request.form)
+        except FormError as exc:
+            flash(str(exc), "error")
+            return _safe_redirect(request.form.get("next"), "watchmen")
+        for key, value in payload.items():
+            setattr(entry, key, value)
+        db.session.commit()
+        flash("Petty cash entry updated.", "success")
+        return _safe_redirect(request.form.get("next"), "watchmen")
+
+    @app.post("/watchmen/petty/<int:entry_id>/delete")
+    @admin_required
+    def watchman_petty_delete(entry_id: int):
+        entry = db.session.get(WatchmanPettyCash, entry_id)
+        if entry is None:
+            abort(404)
+        db.session.delete(entry)
+        db.session.commit()
+        flash("Petty cash entry deleted.", "success")
+        return _safe_redirect(request.form.get("next"), "watchmen")
 
     @app.get("/partners")
     @login_required

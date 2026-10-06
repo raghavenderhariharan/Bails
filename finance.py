@@ -332,3 +332,77 @@ def partner_shares(net: Decimal, partners: list) -> dict:
         "balanced": q2(equity_total) == Decimal("100.00"),
         "net": net,
     }
+
+
+# --------------------------------------------------------------------------- #
+# Watchman salary settlement
+# --------------------------------------------------------------------------- #
+
+def months_in_period(period: Period) -> int:
+    """Whole calendar months a period spans (minimum 1).
+
+    Salary is monthly, so a quarter is 3 months of salary, a year is 12, and so
+    on. ``all`` time is measured across the data that exists.
+    """
+    start, end = period.start, period.end
+    if start is None or end is None:
+        first, last = data_bounds()
+        start = start or first
+        end = end or last
+        if start is None or end is None:
+            return 1
+    span = (end.year - start.year) * 12 + (end.month - start.month) + 1
+    return max(1, span)
+
+
+def watchman_settlement(period: Period) -> dict:
+    """Per-watchman salary, petty cash for the period, and net payable."""
+    from sqlalchemy import func
+
+    from models import Watchman, WatchmanPettyCash
+
+    months = months_in_period(period)
+    watchmen = Watchman.query.filter_by(is_active=True).order_by(
+        Watchman.sort_order, Watchman.id
+    ).all()
+
+    # Sum petty cash per watchman within the period, in one query.
+    totals_query = db.session.query(
+        WatchmanPettyCash.watchman_id, func.coalesce(func.sum(WatchmanPettyCash.amount), 0)
+    )
+    if period.start:
+        totals_query = totals_query.filter(WatchmanPettyCash.entry_date >= period.start)
+    if period.end:
+        totals_query = totals_query.filter(WatchmanPettyCash.entry_date <= period.end)
+    petty_by_watchman = {
+        wid: q2(total) for wid, total in totals_query.group_by(WatchmanPettyCash.watchman_id).all()
+    }
+
+    rows = []
+    salary_total = petty_total = net_total = Decimal("0")
+    for w in watchmen:
+        monthly = q2(w.monthly_salary)
+        salary = q2(monthly * months)
+        petty = petty_by_watchman.get(w.id, Decimal("0"))
+        net = q2(salary - petty)
+        rows.append(
+            {
+                "watchman": w,
+                "name": w.name,
+                "monthly_salary": monthly,
+                "salary": salary,
+                "petty": petty,
+                "net": net,
+            }
+        )
+        salary_total += salary
+        petty_total += petty
+        net_total += net
+
+    return {
+        "rows": rows,
+        "months": months,
+        "salary_total": q2(salary_total),
+        "petty_total": q2(petty_total),
+        "net_total": q2(net_total),
+    }

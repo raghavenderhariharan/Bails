@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% block title %}Watchmen{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Watchmen</h1>
+    <div class="page-head__sub">
+      Monthly salary less petty cash taken &mdash; {{ period.label }}
+      {% if settlement.months > 1 %}({{ settlement.months }} months){% endif %}
+    </div>
+  </div>
+  {% if is_admin %}
+    <span class="topbar__spacer"></span>
+    <button class="btn btn--debit" type="button" data-open-petty>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      Add petty cash
+    </button>
+  {% endif %}
+</div>
+
+{% include "_filters.html" %}
+
+<div class="banner" style="background: color-mix(in srgb, var(--brand-navy) 8%, var(--surface)); border-color: color-mix(in srgb, var(--brand-navy) 30%, transparent);">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true" style="color:var(--brand-navy)"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
+  <span>Net payable = salary for the period minus the petty cash each watchman has taken.
+    This settlement is tracked separately from the income &amp; expenditure ledger.</span>
+</div>
+
+<div class="grid grid--kpi" style="margin-bottom:1rem">
+  <div class="kpi kpi--net">
+    <div class="kpi__label">Salary ({{ period.label }})</div>
+    <div class="kpi__value"><span class="cur">{{ CURRENCY }}</span>{{ settlement.salary_total | money }}</div>
+    <div class="kpi__meta">{{ settlement.months }} month{{ '' if settlement.months == 1 else 's' }} &times; active watchmen</div>
+  </div>
+  <div class="kpi kpi--debit">
+    <div class="kpi__label">Petty cash taken</div>
+    <div class="kpi__value kpi__value--debit"><span class="cur">{{ CURRENCY }}</span>{{ settlement.petty_total | money }}</div>
+    <div class="kpi__meta">Deducted from salary</div>
+  </div>
+  <div class="kpi kpi--credit">
+    <div class="kpi__label">Net payable</div>
+    <div class="kpi__value kpi__value--credit"><span class="cur">{{ CURRENCY }}</span>{{ settlement.net_total | money }}</div>
+    <div class="kpi__meta">Cash to hand over</div>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:1rem">
+  <div class="card__head"><h2>Settlement &mdash; {{ period.label }}</h2></div>
+  <div class="card__body card__body--flush">
+    <div class="table-scroll">
+      <table class="ledger">
+        <thead>
+          <tr>
+            <th>Watchman</th>
+            <th class="num">Monthly salary</th>
+            <th class="num">Salary ({{ settlement.months }} mo)</th>
+            <th class="num">Petty cash</th>
+            <th class="num">Net payable</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in settlement.rows %}
+            <tr>
+              <td class="nowrap"><strong>{{ row.name }}</strong></td>
+              <td class="num">{{ CURRENCY }}{{ row.monthly_salary | money }}</td>
+              <td class="num">{{ CURRENCY }}{{ row.salary | money }}</td>
+              <td class="num v-neg">{{ '−' if row.petty > 0 else '' }}{{ CURRENCY }}{{ row.petty | money }}</td>
+              <td class="num {{ 'v-neg' if row.net < 0 else 'v-pos' }}"><strong>{{ CURRENCY }}{{ row.net | money }}</strong></td>
+            </tr>
+          {% endfor %}
+          {% if not settlement.rows %}
+            <tr><td colspan="5" class="empty" style="padding:1.6rem">No active watchmen. Add one below.</td></tr>
+          {% endif %}
+        </tbody>
+        {% if settlement.rows %}
+          <tfoot>
+            <tr>
+              <td>Total</td>
+              <td class="num"></td>
+              <td class="num">{{ CURRENCY }}{{ settlement.salary_total | money }}</td>
+              <td class="num">{{ CURRENCY }}{{ settlement.petty_total | money }}</td>
+              <td class="num">{{ CURRENCY }}{{ settlement.net_total | money }}</td>
+            </tr>
+          </tfoot>
+        {% endif %}
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:1rem">
+  <div class="card__head">
+    <h2>Petty cash taken &mdash; {{ period.label }}</h2>
+  </div>
+  <div class="card__body card__body--flush">
+    {% if entries %}
+      <div class="table-scroll">
+        <table class="ledger">
+          <thead>
+            <tr><th>Date</th><th>Watchman</th><th>Note</th><th class="num">Amount</th>
+              {% if is_admin %}<th class="col-actions">Actions</th>{% endif %}</tr>
+          </thead>
+          <tbody>
+            {% for e in entries %}
+              <tr>
+                <td class="nowrap">{{ e.entry_date.strftime('%d %b %Y') }}</td>
+                <td class="nowrap">{{ watchman_names.get(e.watchman_id, '—') }}</td>
+                <td>{{ e.note or '—' }}</td>
+                <td class="num v-neg">{{ CURRENCY }}{{ e.amount | money }}</td>
+                {% if is_admin %}
+                  <td class="col-actions">
+                    <button class="btn btn--sm btn--ghost" type="button"
+                            data-edit-petty
+                            data-id="{{ e.id }}"
+                            data-watchman="{{ e.watchman_id }}"
+                            data-date="{{ e.entry_date.isoformat() }}"
+                            data-amount="{{ e.amount }}"
+                            data-note="{{ e.note }}">Edit</button>
+                    <form method="post" action="{{ url_for('watchman_petty_delete', entry_id=e.id) }}"
+                          style="display:inline" data-confirm="Delete this petty cash entry of {{ CURRENCY }}{{ e.amount | money }}?">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <input type="hidden" name="next" value="{{ request.full_path }}">
+                      <button class="btn btn--sm btn--danger" type="submit">Delete</button>
+                    </form>
+                  </td>
+                {% endif %}
+              </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="3">Total petty cash</td>
+              <td class="num">{{ CURRENCY }}{{ settlement.petty_total | money }}</td>
+              {% if is_admin %}<td></td>{% endif %}
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/></svg>
+        <p>No petty cash recorded for {{ period.label }}.{% if is_admin %} Use <strong>Add petty cash</strong> above.{% endif %}</p>
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+{% if is_admin %}
+<div class="card">
+  <div class="card__head">
+    <h2>Watchmen &amp; salaries</h2>
+    <span class="spacer"></span>
+    <span class="small muted">Monthly salary per watchman.</span>
+  </div>
+  <div class="card__body">
+    <form method="post" action="{{ url_for('watchmen_save') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="table-scroll">
+        <table class="ledger">
+          <thead><tr><th>Name</th><th class="num" style="width:180px">Monthly salary ({{ CURRENCY }})</th><th style="width:110px">Active</th></tr></thead>
+          <tbody>
+            {% for w in all_watchmen %}
+              <tr>
+                <td><input type="text" name="name_{{ w.id }}" value="{{ w.name }}" maxlength="120" required aria-label="Name for watchman {{ loop.index }}"></td>
+                <td><input type="text" inputmode="decimal" name="salary_{{ w.id }}" value="{{ w.monthly_salary | money }}" class="num" aria-label="Monthly salary for {{ w.name }}"></td>
+                <td>
+                  <label style="display:flex;align-items:center;gap:.4rem;font-size:.85rem">
+                    <input type="checkbox" name="active_{{ w.id }}" {{ 'checked' if w.is_active }} style="width:auto"> Include
+                  </label>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:1rem">
+        <button class="btn btn--primary" type="submit">Save watchmen</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% include "_petty_modal.html" %}
+{% endif %}
+{% endblock %}

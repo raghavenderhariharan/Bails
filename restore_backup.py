@@ -43,6 +43,8 @@ def main():
     with app.app_context():
         counts = restore_backup(data)
     print(f"Restored {counts['transactions']} transactions, {counts['partners']} partners, "
+          f"{counts.get('watchmen', 0)} watchmen, "
+          f"{counts.get('watchman_petty_cash', 0)} petty-cash entries, "
           f"{counts['settings']} settings.")
 
 

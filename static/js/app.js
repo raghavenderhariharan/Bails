@@ -129,3 +129,45 @@
     }
   });
 })();
+
+/* Watchman petty-cash dialog (only present on the Watchmen tab for admins). */
+(function () {
+  "use strict";
+  var modal = document.getElementById("pettyModal");
+  if (!modal) return;
+
+  var form = document.getElementById("pettyForm");
+  var title = document.getElementById("pettyModalTitle");
+  var createAction = form.getAttribute("action");
+
+  function field(name) { return form.querySelector('[name="' + name + '"]'); }
+  function open() { if (modal.showModal) modal.showModal(); else modal.setAttribute("open", ""); }
+  function close() { if (modal.close) modal.close(); else modal.removeAttribute("open"); }
+
+  document.addEventListener("click", function (event) {
+    if (event.target.closest("[data-open-petty]")) {
+      form.setAttribute("action", createAction);
+      form.reset();
+      title.textContent = "Add petty cash";
+      var d = field("entry_date");
+      if (d && !d.value) d.value = new Date().toISOString().slice(0, 10);
+      open();
+      return;
+    }
+    var editor = event.target.closest("[data-edit-petty]");
+    if (editor) {
+      var data = editor.dataset;
+      form.setAttribute("action", "/watchmen/petty/" + data.id + "/edit");
+      title.textContent = "Edit petty cash";
+      field("watchman_id").value = data.watchman || "";
+      field("entry_date").value = data.date || "";
+      field("amount").value = data.amount || "";
+      field("note").value = data.note || "";
+      open();
+      return;
+    }
+    if (event.target.closest("[data-close-petty]")) close();
+  });
+
+  modal.addEventListener("click", function (event) { if (event.target === modal) close(); });
+})();
