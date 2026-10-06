@@ -8,10 +8,10 @@ backend. Money is emitted as strings so no precision is lost.
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from models import Partner, Setting, Transaction, Watchman, WatchmanPettyCash, db
+from models import Partner, Setting, Transaction, Watchman, db
 
 # Bump only if the shape below changes in a way a restore must branch on.
-BACKUP_FORMAT = 2
+BACKUP_FORMAT = 3
 
 
 def _iso(value):
@@ -24,11 +24,8 @@ def build_backup(generated_at=None) -> dict:
     transactions = Transaction.query.order_by(Transaction.txn_date, Transaction.id).all()
     settings = Setting.query.order_by(Setting.key).all()
     watchmen = Watchman.query.order_by(Watchman.sort_order, Watchman.id).all()
-    petty = WatchmanPettyCash.query.order_by(
-        WatchmanPettyCash.entry_date, WatchmanPettyCash.id
-    ).all()
-    # Stable keys (name) link petty cash to a watchman across a restore, which
-    # reassigns row ids.
+    # A transaction's watchman tag is stored by name so it survives a restore,
+    # which reassigns row ids.
     watchman_name = {w.id: w.name for w in watchmen}
 
     income = sum((t.amount for t in transactions if t.kind == "income"), Decimal("0"))
@@ -46,7 +43,7 @@ def build_backup(generated_at=None) -> dict:
             "expense": f"{expense:.2f}",
             "net": f"{income - expense:.2f}",
             "watchmen": len(watchmen),
-            "watchman_petty_cash": len(petty),
+            "watchman_tagged": sum(1 for t in transactions if t.watchman_id),
         },
         "settings": {s.key: s.value for s in settings},
         "partners": [
@@ -68,6 +65,7 @@ def build_backup(generated_at=None) -> dict:
                 "party": t.party,
                 "amount": f"{Decimal(t.amount or 0):.2f}",
                 "notes": t.notes,
+                "watchman": watchman_name.get(t.watchman_id),
                 "created_at": _iso(t.created_at),
                 "updated_at": _iso(t.updated_at),
             }
@@ -81,17 +79,6 @@ def build_backup(generated_at=None) -> dict:
                 "is_active": bool(w.is_active),
             }
             for w in watchmen
-        ],
-        "watchman_petty_cash": [
-            {
-                "watchman": watchman_name.get(e.watchman_id),
-                "entry_date": _iso(e.entry_date),
-                "amount": f"{Decimal(e.amount or 0):.2f}",
-                "note": e.note,
-                "created_at": _iso(e.created_at),
-                "updated_at": _iso(e.updated_at),
-            }
-            for e in petty
         ],
     }
 
@@ -119,7 +106,6 @@ def restore_backup(data: dict) -> dict:
             f"understands ({BACKUP_FORMAT}). Update the app first."
         )
 
-    WatchmanPettyCash.query.delete()
     Watchman.query.delete()
     Transaction.query.delete()
     Partner.query.delete()
@@ -127,6 +113,19 @@ def restore_backup(data: dict) -> dict:
 
     for key, value in (data.get("settings") or {}).items():
         db.session.add(Setting(key=str(key)[:64], value=str(value)[:255]))
+
+    # Watchmen first, so transactions can be re-tagged to them by name.
+    watchmen_by_name = {}
+    for index, w in enumerate(data.get("watchmen") or []):
+        watchman = Watchman(
+            name=str(w["name"])[:120],
+            monthly_salary=Decimal(str(w.get("monthly_salary", "20000"))),
+            sort_order=int(w.get("sort_order", index)),
+            is_active=bool(w.get("is_active", True)),
+        )
+        db.session.add(watchman)
+        watchmen_by_name[watchman.name] = watchman
+    db.session.flush()  # assign ids for tagging below
 
     for index, p in enumerate(data.get("partners") or []):
         db.session.add(
@@ -153,6 +152,9 @@ def restore_backup(data: dict) -> dict:
             amount=Decimal(str(t.get("amount", "0"))),
             notes=str(t.get("notes", "")),
         )
+        tagged = watchmen_by_name.get(t.get("watchman")) if t.get("watchman") else None
+        if tagged is not None and kind == "expense":
+            row.watchman_id = tagged.id
         created = _parse_dt(t.get("created_at"))
         updated = _parse_dt(t.get("updated_at"))
         if created:
@@ -161,43 +163,11 @@ def restore_backup(data: dict) -> dict:
             row.updated_at = updated
         db.session.add(row)
 
-    # Watchmen (format 2+). Older backups simply have none; the seed will add
-    # the defaults on next startup.
-    watchmen_by_name = {}
-    for index, w in enumerate(data.get("watchmen") or []):
-        watchman = Watchman(
-            name=str(w["name"])[:120],
-            monthly_salary=Decimal(str(w.get("monthly_salary", "20000"))),
-            sort_order=int(w.get("sort_order", index)),
-            is_active=bool(w.get("is_active", True)),
-        )
-        db.session.add(watchman)
-        watchmen_by_name[watchman.name] = watchman
-    db.session.flush()  # assign ids so petty cash can reference them
-
-    for e in data.get("watchman_petty_cash") or []:
-        watchman = watchmen_by_name.get(e.get("watchman"))
-        if watchman is None:
-            continue  # petty cash for a watchman not in the backup; skip it
-        entry = WatchmanPettyCash(
-            watchman_id=watchman.id,
-            entry_date=date.fromisoformat(e["entry_date"]),
-            amount=Decimal(str(e.get("amount", "0"))),
-            note=str(e.get("note", ""))[:255],
-        )
-        created = _parse_dt(e.get("created_at"))
-        updated = _parse_dt(e.get("updated_at"))
-        if created:
-            entry.created_at = created
-        if updated:
-            entry.updated_at = updated
-        db.session.add(entry)
-
     db.session.commit()
     return {
         "partners": len(data.get("partners") or []),
         "transactions": len(data.get("transactions") or []),
         "settings": len(data.get("settings") or {}),
         "watchmen": len(data.get("watchmen") or []),
-        "watchman_petty_cash": len(data.get("watchman_petty_cash") or []),
+        "watchman_tagged": sum(1 for t in (data.get("transactions") or []) if t.get("watchman")),
     }

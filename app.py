@@ -30,7 +30,7 @@ from finance import (
 from models import (
     EXPENSE, EXPENSE_CATEGORIES, INCOME, INCOME_CATEGORIES, KINDS,
     ROLE_ADMIN, ROLE_LABELS, ROLE_PARTNER, ROLES, SLOTS,
-    Partner, Setting, Transaction, Watchman, WatchmanPettyCash, db,
+    Partner, Setting, Transaction, Watchman, db,
 )
 
 csrf = CSRFProtect()
@@ -88,6 +88,30 @@ DEFAULT_WATCHMEN = [
 ]
 
 
+def _ensure_columns(app: Flask) -> None:
+    """Add columns that create_all() cannot add to a table that already exists.
+
+    create_all() only creates missing tables, never alters existing ones, so a
+    new column on `transactions` (which already exists on a deployed database)
+    must be added explicitly. ALTER TABLE ADD COLUMN works on both SQLite and
+    Postgres; the check makes it a safe no-op when the column is already there.
+    """
+    from sqlalchemy import inspect as sa_inspect, text
+
+    try:
+        inspector = sa_inspect(db.engine)
+        if "transactions" not in inspector.get_table_names():
+            return  # fresh DB; create_all() already built the full table
+        columns = {c["name"] for c in inspector.get_columns("transactions")}
+        if "watchman_id" not in columns:
+            db.session.execute(text("ALTER TABLE transactions ADD COLUMN watchman_id INTEGER"))
+            db.session.commit()
+            app.logger.info("Added transactions.watchman_id")
+    except (OperationalError, ProgrammingError) as exc:  # pragma: no cover
+        db.session.rollback()
+        app.logger.warning("column migration skipped: %s", exc)
+
+
 def _bootstrap(app: Flask) -> None:
     """Create tables and seed defaults, safely under multiple Gunicorn workers.
 
@@ -106,6 +130,8 @@ def _bootstrap(app: Flask) -> None:
                 app.logger.warning("create_all() did not settle: %s", exc)
             else:
                 time.sleep(0.3 * (attempt + 1))
+
+    _ensure_columns(app)
 
     try:
         if db.session.query(Partner.id).first() is None:
@@ -286,6 +312,20 @@ def _clip(raw, limit: int) -> str:
     return (raw or "").strip()[:limit]
 
 
+def _parse_watchman_id(form, kind):
+    """A watchman tag is only meaningful on an expense; ignore it otherwise."""
+    raw = (form.get("watchman_id") or "").strip()
+    if kind != EXPENSE or not raw:
+        return None
+    try:
+        watchman_id = int(raw)
+    except (TypeError, ValueError):
+        raise FormError("Choose a valid watchman, or leave it blank.")
+    if db.session.get(Watchman, watchman_id) is None:
+        raise FormError("Choose a valid watchman, or leave it blank.")
+    return watchman_id
+
+
 def _txn_from_form(form) -> dict:
     kind = _parse_kind(form.get("kind"))
     category = _clip(form.get("category"), 80)
@@ -300,6 +340,7 @@ def _txn_from_form(form) -> dict:
         "party": _clip(form.get("party"), 120),
         "amount": _parse_amount(form.get("amount")),
         "notes": _clip(form.get("notes"), 2000),
+        "watchman_id": _parse_watchman_id(form, kind),
     }
 
 
@@ -339,7 +380,19 @@ def _register_filters(app: Flask) -> None:
 
     @app.context_processor
     def _inject():
+        # Active watchmen power the "petty cash" dropdown in the global entry
+        # dialog; only needed for admins, but cheap (two rows) and simplest here.
+        try:
+            active_watchmen = (
+                Watchman.query.filter_by(is_active=True)
+                .order_by(Watchman.sort_order, Watchman.id)
+                .all()
+                if is_admin() else []
+            )
+        except Exception:  # pragma: no cover - never break a page over this
+            active_watchmen = []
         return {
+            "active_watchmen": active_watchmen,
             "CURRENCY": app.config["CURRENCY_SYMBOL"],
             "INCOME": INCOME,
             "EXPENSE": EXPENSE,
@@ -499,11 +552,13 @@ def _register_routes(app: Flask) -> None:
         # Oldest first, so the ledger reads the way a book does.
         rows = query.order_by(Transaction.txn_date.asc(), Transaction.id.asc()).all()
         subtotal = q2(sum((r.amount for r in rows), Decimal("0")))
+        watchman_names = {w.id: w.name for w in Watchman.query.all()} if kind == EXPENSE else {}
         return render_template(
             template,
             kind=kind,
             rows=rows,
             subtotal=subtotal,
+            watchman_names=watchman_names,
             summary=totals(period),
             breakdown=category_breakdown(period, kind),
             search=search,
@@ -587,15 +642,18 @@ def _register_routes(app: Flask) -> None:
     def watchmen():
         period = parse_period(request.args)
         settlement = watchman_settlement(period)
-        entries_query = WatchmanPettyCash.query
-        if period.start:
-            entries_query = entries_query.filter(WatchmanPettyCash.entry_date >= period.start)
-        if period.end:
-            entries_query = entries_query.filter(WatchmanPettyCash.entry_date <= period.end)
-        entries = entries_query.order_by(
-            WatchmanPettyCash.entry_date.asc(), WatchmanPettyCash.id.asc()
-        ).all()
         names = {w.id: w.name for w in Watchman.query.all()}
+        # The petty-cash breakdown is just the tagged expense entries themselves.
+        entries = (
+            apply_period(
+                Transaction.query.filter(
+                    Transaction.kind == EXPENSE, Transaction.watchman_id.isnot(None)
+                ),
+                period,
+            )
+            .order_by(Transaction.txn_date.asc(), Transaction.id.asc())
+            .all()
+        )
         return render_template(
             "watchmen.html",
             settlement=settlement,
@@ -635,7 +693,7 @@ def _register_routes(app: Flask) -> None:
         try:
             final_names = {w.id: w.name for w in rows}
             for w in rows:
-                w.name = f"\u0000tmp-{w.id}"
+                w.name = f"__bails_tmp_{w.id}__"
             db.session.flush()
             for w in rows:
                 w.name = final_names[w.id]
@@ -645,61 +703,6 @@ def _register_routes(app: Flask) -> None:
             flash("Those watchman names clash with each other. Please make them unique.", "error")
             return _safe_redirect(request.form.get("next"), "watchmen")
         flash("Watchmen updated.", "success")
-        return _safe_redirect(request.form.get("next"), "watchmen")
-
-    def _petty_from_form(form):
-        try:
-            watchman_id = int(form.get("watchman_id") or 0)
-        except (TypeError, ValueError):
-            raise FormError("Choose a watchman.")
-        if db.session.get(Watchman, watchman_id) is None:
-            raise FormError("Choose a watchman.")
-        return {
-            "watchman_id": watchman_id,
-            "entry_date": _parse_date(form.get("entry_date")),
-            "amount": _parse_amount(form.get("amount")),
-            "note": _clip(form.get("note"), 255),
-        }
-
-    @app.post("/watchmen/petty/new")
-    @admin_required
-    def watchman_petty_create():
-        try:
-            payload = _petty_from_form(request.form)
-        except FormError as exc:
-            flash(str(exc), "error")
-            return _safe_redirect(request.form.get("next"), "watchmen")
-        db.session.add(WatchmanPettyCash(**payload))
-        db.session.commit()
-        flash(f"Petty cash of {app.config['CURRENCY_SYMBOL']}{fmt_money(payload['amount'])} recorded.", "success")
-        return _safe_redirect(request.form.get("next"), "watchmen")
-
-    @app.post("/watchmen/petty/<int:entry_id>/edit")
-    @admin_required
-    def watchman_petty_update(entry_id: int):
-        entry = db.session.get(WatchmanPettyCash, entry_id)
-        if entry is None:
-            abort(404)
-        try:
-            payload = _petty_from_form(request.form)
-        except FormError as exc:
-            flash(str(exc), "error")
-            return _safe_redirect(request.form.get("next"), "watchmen")
-        for key, value in payload.items():
-            setattr(entry, key, value)
-        db.session.commit()
-        flash("Petty cash entry updated.", "success")
-        return _safe_redirect(request.form.get("next"), "watchmen")
-
-    @app.post("/watchmen/petty/<int:entry_id>/delete")
-    @admin_required
-    def watchman_petty_delete(entry_id: int):
-        entry = db.session.get(WatchmanPettyCash, entry_id)
-        if entry is None:
-            abort(404)
-        db.session.delete(entry)
-        db.session.commit()
-        flash("Petty cash entry deleted.", "success")
         return _safe_redirect(request.form.get("next"), "watchmen")
 
     @app.get("/partners")
@@ -750,7 +753,7 @@ def _register_routes(app: Flask) -> None:
             # rename behind temporary unique values first.
             final_names = {p.id: p.name for p in partner_rows}
             for partner in partner_rows:
-                partner.name = f"\u0000tmp-{partner.id}"
+                partner.name = f"__bails_tmp_{partner.id}__"
             db.session.flush()
             for partner in partner_rows:
                 partner.name = final_names[partner.id]

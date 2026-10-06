@@ -53,6 +53,8 @@
     }
   }
 
+  var watchmanField = document.getElementById("watchmanField");
+
   function setKind(kind, keepCategory) {
     var radio = form.querySelector('input[name="kind"][value="' + kind + '"]');
     if (radio) radio.checked = true;
@@ -60,6 +62,19 @@
     submit.classList.toggle("btn--credit", kind === "income");
     submit.classList.toggle("btn--debit", kind === "expense");
     submit.classList.toggle("btn--primary", false);
+    // The watchman (petty-cash) tag only applies to expenses.
+    if (watchmanField) {
+      var isExpense = kind === "expense";
+      watchmanField.hidden = !isExpense;
+      if (!isExpense) {
+        var w = field("watchman_id");
+        if (w) w.value = "";
+      }
+    }
+    // On a new entry, keep the heading in step with the chosen type.
+    if (form.getAttribute("action") === createAction) {
+      title.textContent = kind === "expense" ? "New expense (debit)" : "New income (credit)";
+    }
   }
 
   Array.prototype.forEach.call(form.querySelectorAll('input[name="kind"]'), function (radio) {
@@ -109,6 +124,8 @@
       field("party").value = data.party || "";
       field("notes").value = data.notes || "";
       setKind(data.kind || "income", data.category || "");
+      var wsel = field("watchman_id");
+      if (wsel) wsel.value = (data.kind === "expense" && data.watchman) ? data.watchman : "";
       open();
       return;
     }
@@ -128,46 +145,4 @@
       event.preventDefault();
     }
   });
-})();
-
-/* Watchman petty-cash dialog (only present on the Watchmen tab for admins). */
-(function () {
-  "use strict";
-  var modal = document.getElementById("pettyModal");
-  if (!modal) return;
-
-  var form = document.getElementById("pettyForm");
-  var title = document.getElementById("pettyModalTitle");
-  var createAction = form.getAttribute("action");
-
-  function field(name) { return form.querySelector('[name="' + name + '"]'); }
-  function open() { if (modal.showModal) modal.showModal(); else modal.setAttribute("open", ""); }
-  function close() { if (modal.close) modal.close(); else modal.removeAttribute("open"); }
-
-  document.addEventListener("click", function (event) {
-    if (event.target.closest("[data-open-petty]")) {
-      form.setAttribute("action", createAction);
-      form.reset();
-      title.textContent = "Add petty cash";
-      var d = field("entry_date");
-      if (d && !d.value) d.value = new Date().toISOString().slice(0, 10);
-      open();
-      return;
-    }
-    var editor = event.target.closest("[data-edit-petty]");
-    if (editor) {
-      var data = editor.dataset;
-      form.setAttribute("action", "/watchmen/petty/" + data.id + "/edit");
-      title.textContent = "Edit petty cash";
-      field("watchman_id").value = data.watchman || "";
-      field("entry_date").value = data.date || "";
-      field("amount").value = data.amount || "";
-      field("note").value = data.note || "";
-      open();
-      return;
-    }
-    if (event.target.closest("[data-close-petty]")) close();
-  });
-
-  modal.addEventListener("click", function (event) { if (event.target === modal) close(); });
 })();

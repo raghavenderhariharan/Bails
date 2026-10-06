@@ -12,10 +12,10 @@
   </div>
   {% if is_admin %}
     <span class="topbar__spacer"></span>
-    <button class="btn btn--debit" type="button" data-open-petty>
+    <a class="btn btn--debit" href="{{ url_for('expenses', **period.query_args()) }}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-      Add petty cash
-    </button>
+      Add petty cash (on Expenses)
+    </a>
   {% endif %}
 </div>
 
@@ -23,8 +23,9 @@
 
 <div class="banner" style="background: color-mix(in srgb, var(--brand-navy) 8%, var(--surface)); border-color: color-mix(in srgb, var(--brand-navy) 30%, transparent);">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true" style="color:var(--brand-navy)"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
-  <span>Net payable = salary for the period minus the petty cash each watchman has taken.
-    This settlement is tracked separately from the income &amp; expenditure ledger.</span>
+  <span>Net payable = salary for the period minus petty cash the watchman has taken.
+    Record petty cash on the <strong>Expenses &middot; Debit</strong> tab and pick the watchman in the
+    &ldquo;Petty cash for watchman&rdquo; box &mdash; those entries are debits in the ledger and roll up here.</span>
 </div>
 
 <div class="grid grid--kpi" style="margin-bottom:1rem">
@@ -98,41 +99,23 @@
       <div class="table-scroll">
         <table class="ledger">
           <thead>
-            <tr><th>Date</th><th>Watchman</th><th>Note</th><th class="num">Amount</th>
-              {% if is_admin %}<th class="col-actions">Actions</th>{% endif %}</tr>
+            <tr><th>Date</th><th>Watchman</th><th>Category</th><th>Description</th><th class="num">Amount</th></tr>
           </thead>
           <tbody>
             {% for e in entries %}
               <tr>
-                <td class="nowrap">{{ e.entry_date.strftime('%d %b %Y') }}</td>
+                <td class="nowrap">{{ e.txn_date.strftime('%d %b %Y') }}</td>
                 <td class="nowrap">{{ watchman_names.get(e.watchman_id, '—') }}</td>
-                <td>{{ e.note or '—' }}</td>
+                <td class="nowrap small">{{ e.category }}</td>
+                <td>{{ e.description or '—' }}</td>
                 <td class="num v-neg">{{ CURRENCY }}{{ e.amount | money }}</td>
-                {% if is_admin %}
-                  <td class="col-actions">
-                    <button class="btn btn--sm btn--ghost" type="button"
-                            data-edit-petty
-                            data-id="{{ e.id }}"
-                            data-watchman="{{ e.watchman_id }}"
-                            data-date="{{ e.entry_date.isoformat() }}"
-                            data-amount="{{ e.amount }}"
-                            data-note="{{ e.note }}">Edit</button>
-                    <form method="post" action="{{ url_for('watchman_petty_delete', entry_id=e.id) }}"
-                          style="display:inline" data-confirm="Delete this petty cash entry of {{ CURRENCY }}{{ e.amount | money }}?">
-                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                      <input type="hidden" name="next" value="{{ request.full_path }}">
-                      <button class="btn btn--sm btn--danger" type="submit">Delete</button>
-                    </form>
-                  </td>
-                {% endif %}
               </tr>
             {% endfor %}
           </tbody>
           <tfoot>
             <tr>
-              <td colspan="3">Total petty cash</td>
+              <td colspan="4">Total petty cash</td>
               <td class="num">{{ CURRENCY }}{{ settlement.petty_total | money }}</td>
-              {% if is_admin %}<td></td>{% endif %}
             </tr>
           </tfoot>
         </table>
@@ -140,7 +123,7 @@
     {% else %}
       <div class="empty">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/></svg>
-        <p>No petty cash recorded for {{ period.label }}.{% if is_admin %} Use <strong>Add petty cash</strong> above.{% endif %}</p>
+        <p>No petty cash tagged to a watchman for {{ period.label }}.{% if is_admin %} Add an expense on the <a href="{{ url_for('expenses', **period.query_args()) }}">Expenses</a> tab and pick the watchman.{% endif %}</p>
       </div>
     {% endif %}
   </div>
@@ -182,6 +165,5 @@
   </div>
 </div>
 
-{% include "_petty_modal.html" %}
 {% endif %}
 {% endblock %}

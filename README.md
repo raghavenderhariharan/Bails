@@ -41,7 +41,7 @@ for exactly that on create, edit, delete and the equity form.
 | **Income · Credit** | Every credit entry for the period (oldest first), with category filter, search, subtotal and per-category bars |
 | **Expenses · Debit** | The same for debits |
 | **Partner Profit** | Each partner's share of net profit for the period, plus an editable equity split |
-| **Watchmen** | Each watchman's fixed monthly salary, less the petty cash they took, = net payable |
+| **Watchmen** | Each watchman's fixed monthly salary, less petty cash (expenses tagged to them), = net payable |
 | **All Transactions** | Credit and debit together, oldest first, with a running balance that builds downwards |
 
 Admin additionally gets the **New entry** dialog, per-row Edit / Delete, and a
@@ -63,10 +63,11 @@ Other features:
   same twelve columns and a running balance, plus a **Partner Profit** sheet.
   Rows read oldest-first, the way a ledger book does.
 - **Watchmen settlement** — each of the two watchmen has a fixed monthly
-  salary (default ₹20,000); petty cash they take during the period is logged
-  against them and deducted, showing the net cash to hand over. Tracked
-  separately from the income/expense ledger, and scales with the period
-  (a quarter counts three months of salary).
+  salary (default ₹20,000). Petty cash is recorded as an ordinary **expense**
+  on the Expenses tab with the watchman picked in the "Petty cash for watchman"
+  box; those debits roll up on the Watchmen tab and are deducted from the
+  salary to show the net cash to hand over. Salary scales with the period
+  (a quarter counts three months).
 - **Save to Drive** — one click writes that workbook into a folder on this
   machine, replacing the previous copy. Point it at a Google Drive for Desktop
   folder and Drive uploads it for you.

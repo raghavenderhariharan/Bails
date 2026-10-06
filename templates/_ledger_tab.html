@@ -91,7 +91,11 @@
                 <td class="nowrap">{{ t.txn_date.strftime('%d %b %Y') }}</td>
                 <td class="nowrap small muted">{{ t.day_name[:3] }}</td>
                 <td class="nowrap"><span class="tag tag--{{ accent }}">{{ t.category }}</span></td>
-                <td>{{ t.description or '—' }}{% if t.notes %}<div class="small muted">{{ t.notes }}</div>{% endif %}</td>
+                <td>{{ t.description or '—' }}
+                  {% if t.watchman_id and watchman_names is defined and watchman_names.get(t.watchman_id) %}
+                    <div class="small"><span class="tag" style="color:var(--brand-navy);border-color:color-mix(in srgb,var(--brand-navy) 35%,transparent)">Watchman: {{ watchman_names.get(t.watchman_id) }}</span></div>
+                  {% endif %}
+                  {% if t.notes %}<div class="small muted">{{ t.notes }}</div>{% endif %}</td>
                 <td class="nowrap small">{{ t.slot or '—' }}</td>
                 <td class="nowrap">{{ t.party or '—' }}</td>
                 <td class="num {{ 'v-pos' if is_income else 'v-neg' }}">{{ CURRENCY }}{{ t.amount | money }}</td>
@@ -107,6 +111,7 @@
                           data-description="{{ t.description }}"
                           data-slot="{{ t.slot }}"
                           data-party="{{ t.party }}"
+                          data-watchman="{{ t.watchman_id or '' }}"
                           data-notes="{{ t.notes }}">Edit</button>
                   <form method="post" action="{{ url_for('transaction_delete', txn_id=t.id) }}"
                         style="display:inline" data-confirm="Delete this entry of {{ CURRENCY }}{{ t.amount | money }}? This cannot be undone.">

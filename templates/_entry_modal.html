@@ -73,6 +73,16 @@
           <input type="text" id="e-party" name="party" placeholder="Customer" autocomplete="off">
         </div>
 
+        <div class="field span-2" id="watchmanField" hidden>
+          <label for="e-watchman">Petty cash for watchman <span class="muted small">(optional, expenses only)</span></label>
+          <select id="e-watchman" name="watchman_id">
+            <option value="">— Not petty cash —</option>
+            {% for w in active_watchmen %}
+              <option value="{{ w.id }}">{{ w.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
         <div class="field span-2">
           <label for="e-notes">Notes</label>
           <textarea id="e-notes" name="notes" placeholder="Optional"></textarea>

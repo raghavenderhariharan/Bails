@@ -356,26 +356,29 @@ def months_in_period(period: Period) -> int:
 
 
 def watchman_settlement(period: Period) -> dict:
-    """Per-watchman salary, petty cash for the period, and net payable."""
+    """Per-watchman salary, petty cash for the period, and net payable.
+
+    Petty cash is any **expense** transaction tagged to a watchman
+    (``Transaction.watchman_id``), entered from the Expenses tab.
+    """
     from sqlalchemy import func
 
-    from models import Watchman, WatchmanPettyCash
+    from models import Watchman
 
     months = months_in_period(period)
     watchmen = Watchman.query.filter_by(is_active=True).order_by(
         Watchman.sort_order, Watchman.id
     ).all()
 
-    # Sum petty cash per watchman within the period, in one query.
-    totals_query = db.session.query(
-        WatchmanPettyCash.watchman_id, func.coalesce(func.sum(WatchmanPettyCash.amount), 0)
+    # Sum tagged expenses per watchman within the period, in one query.
+    totals_query = apply_period(
+        db.session.query(
+            Transaction.watchman_id, func.coalesce(func.sum(Transaction.amount), 0)
+        ).filter(Transaction.kind == EXPENSE, Transaction.watchman_id.isnot(None)),
+        period,
     )
-    if period.start:
-        totals_query = totals_query.filter(WatchmanPettyCash.entry_date >= period.start)
-    if period.end:
-        totals_query = totals_query.filter(WatchmanPettyCash.entry_date <= period.end)
     petty_by_watchman = {
-        wid: q2(total) for wid, total in totals_query.group_by(WatchmanPettyCash.watchman_id).all()
+        wid: q2(total) for wid, total in totals_query.group_by(Transaction.watchman_id).all()
     }
 
     rows = []
