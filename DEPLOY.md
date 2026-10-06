@@ -151,6 +151,34 @@ data is in Postgres, so deploys do not touch it.
 
 ---
 
+## Backing up the database
+
+Signed in as **Admin**, the filter bar has a **Backup** button. It downloads a
+single JSON file containing the entire database — every transaction, the
+partners and their equity, and settings.
+
+It backs up **whatever database that site is connected to**:
+
+- On the **Render** site, the button downloads your live **Neon** data.
+- On your **laptop**, it downloads the local SQLite copy.
+
+Keep that JSON somewhere safe. To restore it — into Neon, or a new database, or
+your laptop — point `DATABASE_URL` at the target and run:
+
+```bash
+# Restore into Neon (your production database):
+export DATABASE_URL='postgresql://...neon.tech/neondb?sslmode=require&channel_binding=require'
+python restore_backup.py bails-ledger-backup-2026-10-06.json
+unset DATABASE_URL
+
+# ...or into the local SQLite copy (no DATABASE_URL):
+python restore_backup.py bails-ledger-backup-2026-10-06.json
+```
+
+Restore **replaces all data** in the target database, so it asks you to confirm
+first. Because Neon's free tier has no backups of its own, downloading this JSON
+every so often is your safety net.
+
 ## If something goes wrong
 
 | Symptom | Cause and fix |
@@ -162,6 +190,7 @@ data is in Postgres, so deploys do not touch it.
 | Everyone locked out of login together | `TRUSTED_PROXY_COUNT` is not `1`, so every visitor shares one throttle bucket. |
 | Site loads but has no data | The import in step 4 has not been run against this database. |
 | Local run suddenly hits production | `DATABASE_URL` is still exported in that shell. `unset DATABASE_URL`. |
+| Backup button missing | You are signed in as Partner, not Admin. It is admin-only. |
 
 Logs: service page → **Logs**. Env vars: **Environment**. Manual redeploy:
 **Manual Deploy** → *Clear build cache & deploy*.

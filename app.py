@@ -748,6 +748,32 @@ def _register_routes(app: Flask) -> None:
               f"Google Drive will upload it shortly.", "success")
         return _safe_redirect(request.form.get("next"))
 
+    # ---------------- backup ----------------
+
+    @app.get("/admin/backup.json")
+    @admin_required
+    def admin_backup():
+        """Download a complete, portable snapshot of the whole database.
+
+        Works the same on SQLite and Postgres: it reads every row through the
+        ORM rather than copying a file, so a Render (Postgres) admin gets the
+        same backup a laptop (SQLite) admin does. Restore with restore_backup.py.
+        """
+        import json
+        from backup import build_backup
+
+        snapshot = build_backup(generated_at=datetime.now(timezone.utc))
+        payload = json.dumps(snapshot, indent=2, ensure_ascii=False)
+        stamp = date.today().isoformat()
+        return Response(
+            payload,
+            mimetype="application/json",
+            headers={
+                "Content-Disposition": f'attachment; filename="bails-ledger-backup-{stamp}.json"',
+                "Content-Length": str(len(payload.encode("utf-8"))),
+            },
+        )
+
     # ---------------- ops ----------------
 
     @app.get("/healthz")

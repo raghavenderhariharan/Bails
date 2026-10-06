@@ -17,7 +17,7 @@ The start screen asks **how** you are signing in:
 
 | Role | Password | Can do |
 |---|---|---|
-| **Admin** | `Admin123` | Everything: add, edit and delete entries, and change the equity split |
+| **Admin** | `Admin123` | Everything: add, edit and delete entries, change the equity split, download a full backup |
 | **Partner** | none | View only: every tab, every filter, Excel export — no changes |
 
 Partners get a `Partner · view only` badge in the header, and all the add/edit/
@@ -43,8 +43,9 @@ for exactly that on create, edit, delete and the equity form.
 | **Partner Profit** | Each partner's share of net profit for the period, plus an editable equity split |
 | **All Transactions** | Credit and debit together, oldest first, with a running balance that builds downwards |
 
-Admin additionally gets the **New entry** dialog and per-row Edit / Delete; a
-partner sees the same figures without any of those controls.
+Admin additionally gets the **New entry** dialog, per-row Edit / Delete, and a
+**Backup** button that downloads the whole database as JSON; a partner sees the
+same figures without any of those controls.
 
 Other features:
 

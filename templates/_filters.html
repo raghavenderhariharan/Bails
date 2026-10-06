@@ -100,6 +100,13 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
       Export Excel
     </a>
+    {% if is_admin %}
+      <a class="btn btn--sm btn--ghost" href="{{ url_for('admin_backup') }}"
+         title="Download a full backup of the whole database (all periods) as JSON">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></svg>
+        Backup
+      </a>
+    {% endif %}
     {% if is_admin and drive_sync_ready %}
       <form method="post" action="{{ url_for('export_to_drive', **period.query_args()) }}" style="margin:0">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
