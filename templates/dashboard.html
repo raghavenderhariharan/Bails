@@ -58,153 +58,75 @@
   </div>
 </div>
 
-<div class="grid grid--2" style="margin-bottom:1rem">
-  <div class="card" style="grid-column: 1 / -1">
-    <div class="card__head">
-      <h2>Income vs expenses &mdash; {{ trend_label }}</h2>
-      <span class="spacer"></span>
-      <div class="legend">
-        <span class="legend__item"><span class="legend__swatch" style="background:var(--credit)"></span>Income</span>
-        <span class="legend__item"><span class="legend__swatch" style="background:var(--debit)"></span>Expenses</span>
-        <span class="legend__item"><span class="legend__swatch" style="background:var(--chart-net)"></span>Net</span>
-      </div>
-    </div>
-    <div class="card__body">
-      <div class="chart-wrap" style="height:300px">
-        <canvas id="trendChart" height="300"
-                role="img"
-                aria-label="Grouped bars of monthly income and expenses with a net profit line, covering {{ trend_label }}."></canvas>
-      </div>
-      <details style="margin-top:.9rem">
-        <summary class="small muted" style="cursor:pointer">View as table</summary>
-        <div class="table-scroll" style="margin-top:.6rem">
-          <table class="ledger">
-            <thead><tr><th>Month</th><th class="num">Income</th><th class="num">Expenses</th><th class="num">Net</th></tr></thead>
-            <tbody>
-              {% for m in trend %}
-                <tr>
-                  <td class="nowrap">{{ m.full_label }}</td>
-                  <td class="num">{{ m.income | money }}</td>
-                  <td class="num">{{ m.expense | money }}</td>
-                  <td class="num {{ 'v-neg' if m.net < 0 else '' }}">{{ m.net | money }}</td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </details>
+<div class="card" style="margin-bottom:1rem">
+  <div class="card__head">
+    <h2>Income vs expenses &mdash; {{ trend_label }}</h2>
+    <span class="spacer"></span>
+    <div class="legend">
+      <span class="legend__item"><span class="legend__swatch" style="background:var(--credit)"></span>Income</span>
+      <span class="legend__item"><span class="legend__swatch" style="background:var(--debit)"></span>Expenses</span>
+      <span class="legend__item"><span class="legend__swatch" style="background:var(--chart-net)"></span>Net</span>
     </div>
   </div>
-
-  <div class="card">
-    <div class="card__head"><h2>Income by category</h2></div>
-    <div class="card__body">
-      {% if income_breakdown %}
-        {% set top = income_breakdown[0].amount %}
-        <div class="bars">
-          {% for row in income_breakdown %}
-            <div class="bars__row">
-              <span class="bars__label" title="{{ row.label }}">{{ row.label }}</span>
-              <span class="bars__track"><span class="bars__fill bars__fill--credit"
-                    style="width: {{ (row.amount / top * 100) | round(1) if top > 0 else 0 }}%"></span></span>
-              <span class="bars__value">{{ CURRENCY }}{{ row.amount | money }}</span>
-            </div>
-          {% endfor %}
-        </div>
-      {% else %}
-        <p class="muted small" style="margin:0">No income recorded for {{ period.label }}.</p>
-      {% endif %}
+  <div class="card__body">
+    <div class="chart-wrap" style="height:300px">
+      <canvas id="trendChart" height="300"
+              role="img"
+              aria-label="Grouped bars of monthly income and expenses with a net profit line, covering {{ trend_label }}."></canvas>
     </div>
-  </div>
-
-  <div class="card">
-    <div class="card__head"><h2>Expenses by category</h2></div>
-    <div class="card__body">
-      {% if expense_breakdown %}
-        {% set top = expense_breakdown[0].amount %}
-        <div class="bars">
-          {% for row in expense_breakdown %}
-            <div class="bars__row">
-              <span class="bars__label" title="{{ row.label }}">{{ row.label }}</span>
-              <span class="bars__track"><span class="bars__fill bars__fill--debit"
-                    style="width: {{ (row.amount / top * 100) | round(1) if top > 0 else 0 }}%"></span></span>
-              <span class="bars__value">{{ CURRENCY }}{{ row.amount | money }}</span>
-            </div>
-          {% endfor %}
-        </div>
-      {% else %}
-        <p class="muted small" style="margin:0">No expenses recorded for {{ period.label }}.</p>
-      {% endif %}
-    </div>
-  </div>
-</div>
-
-<div class="grid grid--2">
-  <div class="card">
-    <div class="card__head">
-      <h2>Partner profit share</h2>
-      <span class="spacer"></span>
-      <a class="btn btn--sm btn--ghost" href="{{ url_for('partners', **period.query_args()) }}">Open tab</a>
-    </div>
-    <div class="card__body card__body--flush">
-      <div class="table-scroll">
+    <details style="margin-top:.9rem">
+      <summary class="small muted" style="cursor:pointer">View as table</summary>
+      <div class="table-scroll" style="margin-top:.6rem">
         <table class="ledger">
-          <thead><tr><th>Partner</th><th class="num">Equity</th><th class="num">Share of net</th></tr></thead>
+          <thead><tr><th>Month</th><th class="num">Income</th><th class="num">Expenses</th><th class="num">Net</th></tr></thead>
           <tbody>
-            {% for row in shares.rows %}
+            {% for m in trend %}
               <tr>
-                <td class="nowrap">{{ row.name }}</td>
-                <td class="num"><span class="equity-pill">{{ row.equity | round(2) | int if row.equity == row.equity | round(0) else row.equity }}%</span></td>
-                <td class="num {{ 'v-neg' if row.share < 0 else '' }}">{{ CURRENCY }}{{ row.share | money }}</td>
+                <td class="nowrap">{{ m.full_label }}</td>
+                <td class="num">{{ m.income | money }}</td>
+                <td class="num">{{ m.expense | money }}</td>
+                <td class="num {{ 'v-neg' if m.net < 0 else '' }}">{{ m.net | money }}</td>
               </tr>
             {% endfor %}
           </tbody>
-          <tfoot>
-            <tr>
-              <td>Total</td>
-              <td class="num">{{ shares.equity_total }}%</td>
-              <td class="num {{ 'v-neg' if shares.allocated < 0 else '' }}">{{ CURRENCY }}{{ shares.allocated | money }}</td>
-            </tr>
-          </tfoot>
         </table>
       </div>
-    </div>
+    </details>
   </div>
+</div>
 
-  <div class="card">
-    <div class="card__head">
-      <h2>Latest entries &middot; {{ period.label }}</h2>
-      <span class="spacer"></span>
-      <a class="btn btn--sm btn--ghost" href="{{ url_for('transactions', **period.query_args()) }}">See all</a>
-    </div>
-    <div class="card__body card__body--flush">
-      {% if recent %}
-        <div class="table-scroll">
-          <table class="ledger">
-            <thead><tr><th>Date</th><th>Detail</th><th class="num">Amount</th></tr></thead>
-            <tbody>
-              {% for t in recent %}
-                <tr>
-                  <td class="nowrap small">{{ t.txn_date.strftime('%d %b') }}</td>
-                  <td>
-                    <div>{{ t.description or t.category }}</div>
-                    <div class="small muted">{{ t.category }}{% if t.party %} · {{ t.party }}{% endif %}</div>
-                  </td>
-                  <td class="num {{ 'v-pos' if t.kind == INCOME else 'v-neg' }}">
-                    {{ '+' if t.kind == INCOME else '−' }}{{ CURRENCY }}{{ t.amount | money }}
-                  </td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      {% else %}
-        <div class="empty">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 7h18M3 12h18M3 17h18"/></svg>
-          <p>No entries for {{ period.label }}. Use <strong>New entry</strong> to record one.</p>
-        </div>
-      {% endif %}
-    </div>
+<div class="card">
+  <div class="card__head">
+    <h2>Latest entries &middot; {{ period.label }}</h2>
+    <span class="spacer"></span>
+    <a class="btn btn--sm btn--ghost" href="{{ url_for('transactions', **period.query_args()) }}">See all</a>
+  </div>
+  <div class="card__body card__body--flush">
+    {% if recent %}
+      <div class="table-scroll">
+        <table class="ledger">
+          <thead><tr><th>Date</th><th>Detail</th><th>Category</th><th>Party</th><th class="num">Amount</th></tr></thead>
+          <tbody>
+            {% for t in recent %}
+              <tr>
+                <td class="nowrap small">{{ t.txn_date.strftime('%d %b %Y') }}</td>
+                <td>{{ t.description or t.category }}</td>
+                <td class="nowrap small muted">{{ t.category }}</td>
+                <td class="nowrap small muted">{{ t.party or '—' }}</td>
+                <td class="num {{ 'v-pos' if t.kind == INCOME else 'v-neg' }}">
+                  {{ '+' if t.kind == INCOME else '−' }}{{ CURRENCY }}{{ t.amount | money }}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 7h18M3 12h18M3 17h18"/></svg>
+        <p>No entries for {{ period.label }}. Use <strong>New entry</strong> to record one.</p>
+      </div>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

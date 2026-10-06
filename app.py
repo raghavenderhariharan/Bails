@@ -522,8 +522,6 @@ def _register_routes(app: Flask) -> None:
             trend=trend["series"],
             trend_label=trend["label"],
             recent=recent,
-            income_breakdown=category_breakdown(period, INCOME),
-            expense_breakdown=category_breakdown(period, EXPENSE),
             closing_balance=balance_as_of(period.end),
             opening=opening_balance(),
             **_filter_context(period),
