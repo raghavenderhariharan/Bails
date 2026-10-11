@@ -143,3 +143,56 @@ class Watchman(db.Model):
 
     def __repr__(self):  # pragma: no cover - debugging aid
         return f"<Watchman {self.name} {self.monthly_salary}/mo>"
+
+
+class ExPartner(db.Model):
+    """A seller the ground is being bought from (previous owner).
+
+    Each is owed a fixed ``closing_amount``; what they have been paid is the sum
+    of the ground payments made to them, so it is computed, never stored.
+    """
+
+    __tablename__ = "ex_partners"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False, unique=True)
+    closing_amount = db.Column(db.Numeric(12, 2), nullable=False, default=Decimal("0"))
+    account_number = db.Column(db.String(255), nullable=False, default="")
+    sort_order = db.Column(db.Integer, nullable=False, default=0)
+
+    def __repr__(self):  # pragma: no cover - debugging aid
+        return f"<ExPartner {self.name} {self.closing_amount}>"
+
+
+class GroundPayment(db.Model):
+    """One payment toward the ground purchase: a current partner pays a seller.
+
+    This is the single source of truth for "amount paid". Each payment adds to
+    exactly one ex-partner's received total and one current partner's
+    contributed total, so the two sides always tally.
+    """
+
+    __tablename__ = "ground_payments"
+
+    id = db.Column(db.Integer, primary_key=True)
+    detail = db.Column(db.String(120), nullable=False, default="")
+    # Paid to a seller (ex-partner) by a current partner.
+    ex_partner_id = db.Column(
+        db.Integer, db.ForeignKey("ex_partners.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    partner_id = db.Column(
+        db.Integer, db.ForeignKey("partners.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    txn_number = db.Column(db.String(80), nullable=False, default="")
+    txn_date = db.Column(db.Date, nullable=True, index=True)
+    amount = db.Column(db.Numeric(12, 2), nullable=False, default=Decimal("0"))
+    note = db.Column(db.String(255), nullable=False, default="")
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=_utcnow)
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow)
+
+    __table_args__ = (
+        db.CheckConstraint("amount >= 0", name="ck_ground_payments_amount_non_negative"),
+    )
+
+    def __repr__(self):  # pragma: no cover - debugging aid
+        return f"<GroundPayment {self.detail} {self.amount}>"

@@ -28,3 +28,6 @@ instance/
 .DS_Store
 .idea/
 .vscode/
+
+# Source spreadsheets with bank details — never commit
+Ledger Book/

@@ -409,3 +409,86 @@ def watchman_settlement(period: Period) -> dict:
         "petty_total": q2(petty_total),
         "net_total": q2(net_total),
     }
+
+
+# --------------------------------------------------------------------------- #
+# Ground purchase ledger
+# --------------------------------------------------------------------------- #
+
+LEASE_VALUE_KEY = "ground_lease_value"
+
+
+def lease_value() -> Decimal:
+    return q2(Setting.get(LEASE_VALUE_KEY, "0") or "0")
+
+
+def ground_settlement() -> dict:
+    """The whole ground-purchase picture, all derived from the payments.
+
+    Payments are the single source of truth: each adds to one ex-partner's
+    received total and one current partner's contributed total, so
+    ``paid_to_ex`` and ``paid_by_partners`` always equal the payment total.
+    """
+    from sqlalchemy import func
+
+    from models import ExPartner, GroundPayment, Partner
+
+    lease = lease_value()
+
+    ex_partners = ExPartner.query.order_by(ExPartner.sort_order, ExPartner.id).all()
+    partners = Partner.query.order_by(Partner.sort_order, Partner.id).all()
+    payments = (
+        GroundPayment.query.order_by(GroundPayment.txn_date, GroundPayment.id).all()
+    )
+
+    # Sum payments grouped by seller and by paying partner, each in one query.
+    def _sum_by(column):
+        rows = (
+            db.session.query(column, func.coalesce(func.sum(GroundPayment.amount), 0))
+            .group_by(column)
+            .all()
+        )
+        return {key: q2(total) for key, total in rows if key is not None}
+
+    paid_to = _sum_by(GroundPayment.ex_partner_id)
+    paid_by = _sum_by(GroundPayment.partner_id)
+
+    ex_rows = []
+    for ex in ex_partners:
+        closing = q2(ex.closing_amount)
+        paid = paid_to.get(ex.id, Decimal("0"))
+        ex_rows.append({
+            "ex": ex, "name": ex.name, "account_number": ex.account_number,
+            "closing": closing, "paid": paid, "remaining": q2(closing - paid),
+        })
+
+    equity_total = sum((Decimal(p.equity_pct or 0) for p in partners), Decimal("0"))
+    partner_rows = []
+    for p in partners:
+        equity = Decimal(p.equity_pct or 0)
+        split = q2(lease * equity / Decimal("100")) if lease else Decimal("0")
+        paid = paid_by.get(p.id, Decimal("0"))
+        partner_rows.append({
+            "partner": p, "name": p.name, "equity": equity,
+            "split": split, "paid": paid, "remaining": q2(split - paid),
+        })
+
+    closing_total = q2(sum((r["closing"] for r in ex_rows), Decimal("0")))
+    split_total = q2(sum((r["split"] for r in partner_rows), Decimal("0")))
+    paid_total = q2(sum((q2(p.amount) for p in payments), Decimal("0")))
+
+    return {
+        "lease": lease,
+        "ex_rows": ex_rows,
+        "partner_rows": partner_rows,
+        "payments": payments,
+        "closing_total": closing_total,
+        "split_total": split_total,
+        "paid_total": paid_total,
+        "remaining_total": q2(lease - paid_total),
+        # Tally checks (the paid side always balances by construction).
+        "closing_matches_lease": closing_total == lease,
+        "split_matches_lease": split_total == lease,
+        "equity_total": q2(equity_total),
+        "equity_balanced": q2(equity_total) == Decimal("100.00"),
+    }

@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+{% block title %}Ground Payment{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Ground Payment Ledger</h1>
+    <div class="page-head__sub">Purchase of the ground from the previous owners &mdash; what each seller is owed, and what each partner has contributed.</div>
+  </div>
+  <span class="topbar__spacer"></span>
+  <button class="btn btn--primary" type="button" data-open-gpay>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+    Record payment
+  </button>
+</div>
+
+{# ----- summary tiles ----- #}
+<div class="grid grid--kpi" style="margin-bottom:1rem">
+  <div class="kpi kpi--net">
+    <div class="kpi__label">Lease value</div>
+    <div class="kpi__value"><span class="cur">{{ CURRENCY }}</span>{{ g.lease | money }}</div>
+    <div class="kpi__meta">Agreed purchase price</div>
+  </div>
+  <div class="kpi kpi--credit">
+    <div class="kpi__label">Paid to date</div>
+    <div class="kpi__value kpi__value--credit"><span class="cur">{{ CURRENCY }}</span>{{ g.paid_total | money }}</div>
+    <div class="kpi__meta">{{ g.payments | length }} payment{{ '' if g.payments | length == 1 else 's' }}</div>
+  </div>
+  <div class="kpi kpi--debit">
+    <div class="kpi__label">Remaining to pay</div>
+    <div class="kpi__value {{ 'v-neg' if g.remaining_total > 0 else 'v-pos' }}"><span class="cur">{{ CURRENCY }}</span>{{ g.remaining_total | money }}</div>
+    <div class="kpi__meta">Lease less paid</div>
+  </div>
+  <div class="kpi {{ 'kpi--credit' if g.closing_matches_lease and g.split_matches_lease else 'kpi--debit' }}">
+    <div class="kpi__label">Tally check</div>
+    <div class="kpi__value" style="font-size:1.1rem;margin-top:.5rem">
+      {% if g.closing_matches_lease and g.split_matches_lease %}
+        <span class="tag tag--credit">Everything tallies</span>
+      {% else %}
+        <span class="tag tag--debit">Needs attention</span>
+      {% endif %}
+    </div>
+    <div class="kpi__meta">Sellers &amp; partners vs lease value</div>
+  </div>
+</div>
+
+{% if not g.closing_matches_lease %}
+  <div class="banner">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+    <span>Sellers&rsquo; closing amounts total <strong>{{ CURRENCY }}{{ g.closing_total | money }}</strong>,
+      but the lease value is <strong>{{ CURRENCY }}{{ g.lease | money }}</strong>. They should match.</span>
+  </div>
+{% endif %}
+{% if not g.equity_balanced %}
+  <div class="banner">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+    <span>Partner equity totals <strong>{{ g.equity_total }}%</strong>, not 100% &mdash; fix it on the
+      <a href="{{ url_for('partners') }}">Partner Profit</a> tab so the split matches the lease.</span>
+  </div>
+{% endif %}
+
+{# ----- sellers (ex-partners): editable closing amounts, computed paid/remaining ----- #}
+<div class="card" style="margin-bottom:1rem">
+  <div class="card__head">
+    <h2>Sellers &mdash; amounts owed (closing)</h2>
+    <span class="spacer"></span>
+    <span class="small muted">Edit names, closing amounts and account numbers. Paid &amp; remaining calculate themselves.</span>
+  </div>
+  <div class="card__body">
+    <form method="post" action="{{ url_for('ground_save') }}" id="groundForm">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+
+      <div class="filters__row" style="margin-bottom:1rem">
+        <div class="field" style="max-width:240px">
+          <label for="lease_value">Lease value ({{ CURRENCY }})</label>
+          <input type="text" inputmode="decimal" id="lease_value" name="lease_value"
+                 value="{{ g.lease | money }}" data-ground-lease class="num">
+        </div>
+      </div>
+
+      <div class="table-scroll">
+        <table class="ledger" id="sellersTable">
+          <thead>
+            <tr>
+              <th>Seller (ex-partner)</th>
+              <th>Account number</th>
+              <th class="num" style="width:150px">Closing amount</th>
+              <th class="num">Paid</th>
+              <th class="num">Remaining</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in g.ex_rows %}
+              <tr data-ground-seller>
+                <td><input type="text" name="name_{{ row.ex.id }}" value="{{ row.name }}" maxlength="120" required></td>
+                <td><input type="text" name="account_{{ row.ex.id }}" value="{{ row.account_number }}" maxlength="255"></td>
+                <td><input type="text" inputmode="decimal" class="num" name="closing_{{ row.ex.id }}"
+                           value="{{ row.closing | money }}" data-ground-closing data-paid="{{ row.paid }}"></td>
+                <td class="num v-pos" data-ground-paid>{{ CURRENCY }}{{ row.paid | money }}</td>
+                <td class="num" data-ground-remaining>{{ CURRENCY }}{{ row.remaining | money }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="2">Total</td>
+              <td class="num" data-ground-closing-total>{{ CURRENCY }}{{ g.closing_total | money }}</td>
+              <td class="num">{{ CURRENCY }}{{ g.paid_total | money }}</td>
+              <td class="num" data-ground-remaining-total>{{ CURRENCY }}{{ (g.closing_total - g.paid_total) | money }}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:1rem">
+        <button class="btn btn--primary" type="submit">Save sellers &amp; lease value</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ----- current partners: computed split / paid / remaining ----- #}
+<div class="card" style="margin-bottom:1rem">
+  <div class="card__head">
+    <h2>Partners &mdash; contributions</h2>
+    <span class="spacer"></span>
+    <span class="small muted">Share of the lease by equity, less what each has paid. Edit equity on <a href="{{ url_for('partners') }}">Partner Profit</a>.</span>
+  </div>
+  <div class="card__body card__body--flush">
+    <div class="table-scroll">
+      <table class="ledger">
+        <thead>
+          <tr><th>Partner</th><th class="num">Equity</th><th class="num">Share of lease</th><th class="num">Paid</th><th class="num">Remaining</th></tr>
+        </thead>
+        <tbody>
+          {% for row in g.partner_rows %}
+            <tr>
+              <td class="nowrap"><strong>{{ row.name }}</strong></td>
+              <td class="num"><span class="equity-pill">{{ row.equity | round(3) | float | round(2) }}%</span></td>
+              <td class="num">{{ CURRENCY }}{{ row.split | money }}</td>
+              <td class="num v-pos">{{ CURRENCY }}{{ row.paid | money }}</td>
+              <td class="num {{ 'v-neg' if row.remaining > 0 else 'v-pos' }}">{{ CURRENCY }}{{ row.remaining | money }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td>Total</td>
+            <td class="num">{{ g.equity_total }}%</td>
+            <td class="num">{{ CURRENCY }}{{ g.split_total | money }}</td>
+            <td class="num">{{ CURRENCY }}{{ g.paid_total | money }}</td>
+            <td class="num">{{ CURRENCY }}{{ (g.split_total - g.paid_total) | money }}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+</div>
+
+{# ----- payments: the source of truth ----- #}
+<div class="card">
+  <div class="card__head">
+    <h2>Payments made</h2>
+    <span class="spacer"></span>
+    <button class="btn btn--sm btn--primary" type="button" data-open-gpay>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      Record payment
+    </button>
+  </div>
+  <div class="card__body card__body--flush">
+    {% if g.payments %}
+      {% set partner_name = {} %}
+      {% for r in g.partner_rows %}{% set _ = partner_name.update({r.partner.id: r.name}) %}{% endfor %}
+      {% set ex_name = {} %}
+      {% for r in g.ex_rows %}{% set _ = ex_name.update({r.ex.id: r.name}) %}{% endfor %}
+      <div class="table-scroll">
+        <table class="ledger">
+          <thead>
+            <tr><th>Date</th><th>Detail</th><th>Paid to (seller)</th><th>Paid by (partner)</th><th>Txn number</th><th class="num">Amount</th><th class="col-actions">Actions</th></tr>
+          </thead>
+          <tbody>
+            {% for p in g.payments %}
+              <tr>
+                <td class="nowrap small">{{ p.txn_date.strftime('%d %b %Y') if p.txn_date else '—' }}</td>
+                <td>{{ p.detail }}</td>
+                <td class="nowrap">{{ ex_name.get(p.ex_partner_id, '—') }}</td>
+                <td class="nowrap">{{ partner_name.get(p.partner_id, '—') }}</td>
+                <td class="nowrap small muted">{{ p.txn_number or '—' }}</td>
+                <td class="num v-pos">{{ CURRENCY }}{{ p.amount | money }}</td>
+                <td class="col-actions">
+                  <button class="btn btn--sm btn--ghost" type="button"
+                          data-edit-gpay
+                          data-id="{{ p.id }}"
+                          data-detail="{{ p.detail }}"
+                          data-ex="{{ p.ex_partner_id or '' }}"
+                          data-partner="{{ p.partner_id or '' }}"
+                          data-number="{{ p.txn_number }}"
+                          data-date="{{ p.txn_date.isoformat() if p.txn_date else '' }}"
+                          data-amount="{{ p.amount }}"
+                          data-note="{{ p.note }}">Edit</button>
+                  <form method="post" action="{{ url_for('ground_payment_delete', payment_id=p.id) }}"
+                        style="display:inline" data-confirm="Delete this payment of {{ CURRENCY }}{{ p.amount | money }}?">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="next" value="{{ request.full_path }}">
+                    <button class="btn btn--sm btn--danger" type="submit">Delete</button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="5">Total paid</td>
+              <td class="num">{{ CURRENCY }}{{ g.paid_total | money }}</td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+        <p>No payments recorded yet. Use <strong>Record payment</strong> to add one.</p>
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+{% include "_ground_payment_modal.html" %}
+{% endblock %}

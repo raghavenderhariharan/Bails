@@ -41,6 +41,7 @@ for exactly that on create, edit, delete and the equity form.
 | **Income · Credit** | Every credit entry for the period (oldest first), with category filter, search, subtotal and per-category bars |
 | **Expenses · Debit** | The same for debits |
 | **Partner Profit** | Each partner's share of net profit for the period, plus an editable equity split |
+| **Ground Payment** (Admin) | The ground-purchase ledger: each seller's closing amount vs paid, each partner's share of the lease vs contributed, all tallying |
 | **Watchmen** | Each watchman's fixed monthly salary, less petty cash (expenses tagged to them), = net payable |
 | **All Transactions** | Credit and debit together, oldest first, with a running balance that builds downwards |
 
@@ -62,6 +63,12 @@ Other features:
   12-month table, standing commitments), a **Transaction Ledger** sheet with the
   same twelve columns and a running balance, plus a **Partner Profit** sheet.
   Rows read oldest-first, the way a ledger book does.
+- **Ground Payment ledger (Admin only)** — tracks buying the ground from its six
+  previous owners: the lease value, each seller's closing amount and what they
+  have been paid, and each current partner's share of the lease (by equity) and
+  what they have contributed. Payments are the single source of truth, so the
+  sellers' and partners' paid totals always tally. Editable inline like a
+  spreadsheet; paid/remaining/totals recompute automatically.
 - **Watchmen settlement** — each of the two watchmen has a fixed monthly
   salary (default ₹20,000). Petty cash is recorded as an ordinary **expense**
   on the Expenses tab with the watchman picked in the "Petty cash for watchman"

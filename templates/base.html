@@ -91,6 +91,13 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7h-9M14 17H5M17 3a4 4 0 0 0 0 8M7 13a4 4 0 0 0 0 8"/></svg>
       Watchmen
     </a>
+    {% if is_admin %}
+    <a class="nav__link {{ 'nav__link--active' if tab == 'ground' }}" href="{{ url_for('ground') }}"
+       {% if tab == 'ground' %}aria-current="page"{% endif %}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18M5 21V8l7-5 7 5v13M9 21v-6h6v6"/></svg>
+      Ground Payment
+    </a>
+    {% endif %}
     <a class="nav__link {{ 'nav__link--active' if tab == 'transactions' }}" href="{{ url_for('transactions', **keep) }}"
        {% if tab == 'transactions' %}aria-current="page"{% endif %}>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>

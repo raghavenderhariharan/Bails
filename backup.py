@@ -8,10 +8,10 @@ backend. Money is emitted as strings so no precision is lost.
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from models import Partner, Setting, Transaction, Watchman, db
+from models import ExPartner, GroundPayment, Partner, Setting, Transaction, Watchman, db
 
 # Bump only if the shape below changes in a way a restore must branch on.
-BACKUP_FORMAT = 3
+BACKUP_FORMAT = 4
 
 
 def _iso(value):
@@ -24,9 +24,12 @@ def build_backup(generated_at=None) -> dict:
     transactions = Transaction.query.order_by(Transaction.txn_date, Transaction.id).all()
     settings = Setting.query.order_by(Setting.key).all()
     watchmen = Watchman.query.order_by(Watchman.sort_order, Watchman.id).all()
-    # A transaction's watchman tag is stored by name so it survives a restore,
-    # which reassigns row ids.
+    ex_partners = ExPartner.query.order_by(ExPartner.sort_order, ExPartner.id).all()
+    ground_payments = GroundPayment.query.order_by(GroundPayment.txn_date, GroundPayment.id).all()
+    # Names are the stable keys that survive a restore (ids are reassigned).
     watchman_name = {w.id: w.name for w in watchmen}
+    ex_name = {e.id: e.name for e in ex_partners}
+    partner_name = {p.id: p.name for p in partners}
 
     income = sum((t.amount for t in transactions if t.kind == "income"), Decimal("0"))
     expense = sum((t.amount for t in transactions if t.kind == "expense"), Decimal("0"))
@@ -44,6 +47,8 @@ def build_backup(generated_at=None) -> dict:
             "net": f"{income - expense:.2f}",
             "watchmen": len(watchmen),
             "watchman_tagged": sum(1 for t in transactions if t.watchman_id),
+            "ex_partners": len(ex_partners),
+            "ground_payments": len(ground_payments),
         },
         "settings": {s.key: s.value for s in settings},
         "partners": [
@@ -80,6 +85,27 @@ def build_backup(generated_at=None) -> dict:
             }
             for w in watchmen
         ],
+        "ex_partners": [
+            {
+                "name": e.name,
+                "closing_amount": f"{Decimal(e.closing_amount or 0):.2f}",
+                "account_number": e.account_number,
+                "sort_order": e.sort_order,
+            }
+            for e in ex_partners
+        ],
+        "ground_payments": [
+            {
+                "detail": gp.detail,
+                "paid_to": ex_name.get(gp.ex_partner_id),
+                "paid_by": partner_name.get(gp.partner_id),
+                "txn_number": gp.txn_number,
+                "txn_date": _iso(gp.txn_date),
+                "amount": f"{Decimal(gp.amount or 0):.2f}",
+                "note": gp.note,
+            }
+            for gp in ground_payments
+        ],
     }
 
 
@@ -106,6 +132,8 @@ def restore_backup(data: dict) -> dict:
             f"understands ({BACKUP_FORMAT}). Update the app first."
         )
 
+    GroundPayment.query.delete()
+    ExPartner.query.delete()
     Watchman.query.delete()
     Transaction.query.delete()
     Partner.query.delete()
@@ -125,7 +153,18 @@ def restore_backup(data: dict) -> dict:
         )
         db.session.add(watchman)
         watchmen_by_name[watchman.name] = watchman
-    db.session.flush()  # assign ids for tagging below
+
+    ex_by_name = {}
+    for index, e in enumerate(data.get("ex_partners") or []):
+        ex = ExPartner(
+            name=str(e["name"])[:120],
+            closing_amount=Decimal(str(e.get("closing_amount", "0"))),
+            account_number=str(e.get("account_number", ""))[:255],
+            sort_order=int(e.get("sort_order", index)),
+        )
+        db.session.add(ex)
+        ex_by_name[ex.name] = ex
+    db.session.flush()  # assign ids for tagging/linking below
 
     for index, p in enumerate(data.get("partners") or []):
         db.session.add(
@@ -163,6 +202,26 @@ def restore_backup(data: dict) -> dict:
             row.updated_at = updated
         db.session.add(row)
 
+    partners_by_name = {p.name: p for p in Partner.query.all()}
+    for gp in data.get("ground_payments") or []:
+        ex = ex_by_name.get(gp.get("paid_to"))
+        payer = partners_by_name.get(gp.get("paid_by"))
+        when = None
+        if gp.get("txn_date"):
+            try:
+                when = date.fromisoformat(gp["txn_date"])
+            except ValueError:
+                when = None
+        db.session.add(GroundPayment(
+            detail=str(gp.get("detail", ""))[:120],
+            ex_partner_id=ex.id if ex else None,
+            partner_id=payer.id if payer else None,
+            txn_number=str(gp.get("txn_number", ""))[:80],
+            txn_date=when,
+            amount=Decimal(str(gp.get("amount", "0"))),
+            note=str(gp.get("note", ""))[:255],
+        ))
+
     db.session.commit()
     return {
         "partners": len(data.get("partners") or []),
@@ -170,4 +229,6 @@ def restore_backup(data: dict) -> dict:
         "settings": len(data.get("settings") or {}),
         "watchmen": len(data.get("watchmen") or []),
         "watchman_tagged": sum(1 for t in (data.get("transactions") or []) if t.get("watchman")),
+        "ex_partners": len(data.get("ex_partners") or []),
+        "ground_payments": len(data.get("ground_payments") or []),
     }
