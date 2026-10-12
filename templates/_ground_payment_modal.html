@@ -1,0 +1,59 @@
+{# Add/edit a ground-purchase payment. JS retargets the action for edits. #}
+<dialog class="modal" id="gpayModal" aria-labelledby="gpayModalTitle">
+  <form method="post" action="{{ url_for('ground_payment_create') }}" id="gpayForm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="next" value="{{ request.full_path }}">
+
+    <div class="modal__head">
+      <h2 id="gpayModalTitle">Record payment</h2>
+      <span class="spacer"></span>
+      <button class="btn btn--sm btn--ghost btn--icon" type="button" data-close-gpay aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true" style="width:18px;height:18px"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <div class="modal__body">
+      <div class="form-grid">
+        <div class="field span-2">
+          <label for="gp-detail">Detail</label>
+          <input type="text" id="gp-detail" name="detail" placeholder="Partner Payment - 6" autocomplete="off" required>
+        </div>
+        <div class="field">
+          <label for="gp-ex">Paid to (seller)</label>
+          <select id="gp-ex" name="ex_partner_id" required>
+            <option value="">Select…</option>
+            {% for ex in ex_partners %}<option value="{{ ex.id }}">{{ ex.name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="gp-partner">Paid by (partner)</label>
+          <select id="gp-partner" name="partner_id" required>
+            <option value="">Select…</option>
+            {% for p in partners %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="gp-date">Date</label>
+          <input type="date" id="gp-date" name="txn_date" value="{{ today_iso }}">
+        </div>
+        <div class="field">
+          <label for="gp-amount">Amount ({{ CURRENCY }})</label>
+          <input type="text" inputmode="decimal" id="gp-amount" name="amount" placeholder="100000" autocomplete="off" required>
+        </div>
+        <div class="field span-2">
+          <label for="gp-number">Transaction number</label>
+          <input type="text" id="gp-number" name="txn_number" placeholder="UTR / reference, or 'Cash'" autocomplete="off">
+        </div>
+        <div class="field span-2">
+          <label for="gp-note">Note</label>
+          <input type="text" id="gp-note" name="note" placeholder="Optional" autocomplete="off">
+        </div>
+      </div>
+    </div>
+
+    <div class="modal__foot">
+      <button class="btn btn--ghost" type="button" data-close-gpay>Cancel</button>
+      <button class="btn btn--primary" type="submit" id="gpaySubmit">Save payment</button>
+    </div>
+  </form>
+</dialog>

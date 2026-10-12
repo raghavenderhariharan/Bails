@@ -41,7 +41,7 @@ for exactly that on create, edit, delete and the equity form.
 | **Income · Credit** | Every credit entry for the period (oldest first), with category filter, search, subtotal and per-category bars |
 | **Expenses · Debit** | The same for debits |
 | **Partner Profit** | Each partner's share of net profit for the period, plus an editable equity split |
-| **Ground Payment** (Admin) | Ground investment summary: per investor — shareholding, investment, received, pending (auto), adjustments and notes, with totals and a reconciliation flag |
+| **Ground Payment** (Admin) | Investment Summary (per investor: shareholding, investment, received, pending, adjustments) on top of the detailed sellers/partners/payments ledger — everything editable, totals auto-computed |
 | **Watchmen** | Each watchman's fixed monthly salary, less petty cash (expenses tagged to them), = net payable |
 | **All Transactions** | Credit and debit together, oldest first, with a running balance that builds downwards |
 

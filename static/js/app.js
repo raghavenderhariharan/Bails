@@ -222,3 +222,41 @@
     if (e.target.matches("[data-ground-invest],[data-ground-received],[data-ground-share],[data-ground-adjust],[data-ground-stated]")) recalc();
   });
 })();
+
+/* Ground purchase payment dialog (older sellers+payments ledger, admin-only). */
+(function () {
+  "use strict";
+  var modal = document.getElementById("gpayModal");
+  var form = document.getElementById("gpayForm");
+  if (!modal || !form) return;
+  var title = document.getElementById("gpayModalTitle");
+  var createAction = form.getAttribute("action");
+  var f = function (n) { return form.querySelector('[name="' + n + '"]'); };
+  var open = function () { if (modal.showModal) modal.showModal(); else modal.setAttribute("open", ""); };
+  var close = function () { if (modal.close) modal.close(); else modal.removeAttribute("open"); };
+
+  document.addEventListener("click", function (event) {
+    if (event.target.closest("[data-open-gpay]")) {
+      form.setAttribute("action", createAction); form.reset();
+      title.textContent = "Record payment";
+      var d = f("txn_date"); if (d && !d.value) d.value = new Date().toISOString().slice(0, 10);
+      open(); return;
+    }
+    var ed = event.target.closest("[data-edit-gpay]");
+    if (ed) {
+      var data = ed.dataset;
+      form.setAttribute("action", "/ground/payment/" + data.id + "/edit");
+      title.textContent = "Edit payment";
+      f("detail").value = data.detail || "";
+      f("ex_partner_id").value = data.ex || "";
+      f("partner_id").value = data.partner || "";
+      f("txn_number").value = data.number || "";
+      f("txn_date").value = data.date || "";
+      f("amount").value = data.amount || "";
+      f("note").value = data.note || "";
+      open(); return;
+    }
+    if (event.target.closest("[data-close-gpay]")) close();
+  });
+  modal.addEventListener("click", function (event) { if (event.target === modal) close(); });
+})();
