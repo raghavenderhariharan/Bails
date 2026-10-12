@@ -24,14 +24,14 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from config import Config
 from finance import (
     MONTH_NAMES, apply_period, balance_as_of, category_breakdown, data_bounds, fmt_money,
-    LEASE_VALUE_KEY, ground_settlement, lease_value,
+    GROUND_TOTAL_KEY, investment_summary, stated_total,
     opening_balance, parse_period, partner_shares, q2, totals, trend_window,
     watchman_settlement,
 )
 from models import (
     EXPENSE, EXPENSE_CATEGORIES, INCOME, INCOME_CATEGORIES, KINDS,
     ROLE_ADMIN, ROLE_LABELS, ROLE_PARTNER, ROLES, SLOTS,
-    ExPartner, GroundPayment, Partner, Setting, Transaction, Watchman, db,
+    GroundInvestor, Partner, Setting, Transaction, Watchman, db,
 )
 
 csrf = CSRFProtect()
@@ -88,27 +88,16 @@ DEFAULT_WATCHMEN = [
     ("Watchman 2", Decimal("20000")),
 ]
 
-# Ground purchase ledger, seeded from BAILS TRANSACTION LEDGER.xlsx.
-DEFAULT_LEASE_VALUE = Decimal("3950000")
-# Account numbers are intentionally NOT seeded here: this repo is public and
-# bank details must not live in source control. They are entered in the app and
-# stored only in the (private) database. Closing amounts are business figures.
-DEFAULT_EX_PARTNERS = [
-    ("Bhamandlapally Kishore", Decimal("800000"), ""),
-    ("Naresh Kumar Jain", Decimal("800000"), ""),
-    ("Nethula Nirosha / Nagaraju", Decimal("800000"), ""),
-    ("Bhanu Kantu Raja Shree", Decimal("1110000"), ""),
-    ("Kallem Sridhar Reddy", Decimal("300000"), ""),
-    ("Santosh Gadre", Decimal("140000"), ""),
-]
-# (detail, paid_to ex-partner, paid_by current partner, txn number, date, amount)
-DEFAULT_GROUND_PAYMENTS = [
-    ("Token Advance", "Bhamandlapally Kishore", "Raghavender Hariharan", "625219440711", date(2026, 9, 9), Decimal("100000")),
-    ("Partner Payment - 1", "Kallem Sridhar Reddy", "Siva Konderu", "2609-151304261600", date(2026, 9, 15), Decimal("300000")),
-    ("Partner Payment - 2", "Bhamandlapally Kishore", "Raghavender Hariharan", "625817060282", date(2026, 9, 16), Decimal("500000")),
-    ("Partner Payment - 3", "Bhanu Kantu Raja Shree", "Aravind", "626112905784", date(2026, 9, 18), Decimal("500000")),
-    ("Partner Payment - 4", "Nethula Nirosha / Nagaraju", "DRR sir", "Cash", date(2026, 10, 2), Decimal("200000")),
-    ("Partner Payment - 5", "Nethula Nirosha / Nagaraju", "Raghavender Hariharan", "628320542432", date(2026, 10, 10), Decimal("190000")),
+# Ground investment summary, seeded from the spreadsheet. All amounts in LAKH.
+# (name, shareholding %, investment, received, payment details, adjustment, status/notes)
+DEFAULT_GROUND_STATED_TOTAL = Decimal("39.5")   # lakh
+DEFAULT_GROUND_INVESTORS = [
+    ("Kishore", Decimal("20"), Decimal("7.9"), Decimal("6"), "Rs 6.00 lakh received", Decimal("0"), "Partially received"),
+    ("Naresh Jain", Decimal("20"), Decimal("7.9"), Decimal("0"), "Pending", Decimal("0"), "Pending"),
+    ("Bhanu K", Decimal("20"), Decimal("8.85"), Decimal("5"), "Rs 5.00 lakh received", Decimal("0.95"), "Includes Rs 0.95 lakh adjusted amount"),
+    ("Nagaraju", Decimal("20"), Decimal("7.9"), Decimal("3.9"), "Rs 2.00 lakh cash + Rs 1.90 lakh account transfer", Decimal("0"), "Partially received"),
+    ("Sridhar Reddy", Decimal("10"), Decimal("3.95"), Decimal("3"), "Rs 3.00 lakh received", Decimal("-0.95"), "Rs 0.95 lakh to be reimbursed to Bhanu K"),
+    ("Wowinsite LLP", Decimal("10"), Decimal("3.95"), Decimal("0"), "Pending", Decimal("0"), "Pending"),
 ]
 
 
@@ -167,10 +156,14 @@ def _bootstrap(app: Flask) -> None:
             for index, (name, salary) in enumerate(DEFAULT_WATCHMEN):
                 db.session.add(Watchman(name=name, monthly_salary=salary,
                                         sort_order=index, is_active=True))
-        if db.session.get(Setting, LEASE_VALUE_KEY) is None:
-            db.session.add(Setting(key=LEASE_VALUE_KEY, value=str(DEFAULT_LEASE_VALUE)))
-        if db.session.query(ExPartner.id).first() is None:
-            _seed_ground_ledger()
+        if db.session.get(Setting, GROUND_TOTAL_KEY) is None:
+            db.session.add(Setting(key=GROUND_TOTAL_KEY, value=str(DEFAULT_GROUND_STATED_TOTAL)))
+        if db.session.query(GroundInvestor.id).first() is None:
+            for index, row in enumerate(DEFAULT_GROUND_INVESTORS):
+                name, sh, inv, rec, details, adj, notes = row
+                db.session.add(GroundInvestor(
+                    name=name, shareholding=sh, investment_amount=inv, amount_received=rec,
+                    payment_details=details, adjustment=adj, status_notes=notes, sort_order=index))
         db.session.commit()
     except IntegrityError:
         # A concurrent worker seeded first. Its rows are equivalent to ours.
@@ -194,26 +187,6 @@ def current_role():
 
 def is_admin() -> bool:
     return current_role() == ROLE_ADMIN
-
-
-def _seed_ground_ledger() -> None:
-    """Populate the ground purchase ledger from the spreadsheet (once)."""
-    ex_by_name = {}
-    for index, (name, closing, account) in enumerate(DEFAULT_EX_PARTNERS):
-        ex = ExPartner(name=name, closing_amount=closing, account_number=account, sort_order=index)
-        db.session.add(ex)
-        ex_by_name[name] = ex
-    partner_by_name = {p.name.strip().lower(): p for p in Partner.query.all()}
-    db.session.flush()  # assign ex-partner ids
-    for detail, paid_to, paid_by, number, when, amount in DEFAULT_GROUND_PAYMENTS:
-        ex = ex_by_name.get(paid_to)
-        payer = partner_by_name.get(paid_by.strip().lower())
-        db.session.add(GroundPayment(
-            detail=detail,
-            ex_partner_id=ex.id if ex else None,
-            partner_id=payer.id if payer else None,
-            txn_number=number, txn_date=when, amount=amount,
-        ))
 
 
 def login_required(view):
@@ -420,6 +393,16 @@ def _safe_redirect(target, fallback_endpoint="dashboard"):
 
 def _register_filters(app: Flask) -> None:
     app.jinja_env.filters["money"] = fmt_money
+
+    def _fmt_lakh(value):
+        """Format a lakh amount: trim trailing zeros (7.90 -> '7.9', 6.00 -> '6')."""
+        d = q2(value)
+        text = format(d.normalize(), "f")
+        if "." in text:
+            text = text.rstrip("0").rstrip(".")
+        return text or "0"
+
+    app.jinja_env.filters["lakh"] = _fmt_lakh
 
     @app.template_filter("signed_money")
     def _signed_money(value):
@@ -681,140 +664,108 @@ def _register_routes(app: Flask) -> None:
 
     # ---------------- partners ----------------
 
-    # ---------------- ground purchase ledger (admin only) ----------------
+    # ---------------- ground investment summary (admin only) ----------------
 
     @app.get("/ground")
     @admin_required
     def ground():
         return render_template(
             "ground.html",
-            g=ground_settlement(),
-            ex_partners=ExPartner.query.order_by(ExPartner.sort_order, ExPartner.id).all(),
-            partners=Partner.query.order_by(Partner.sort_order, Partner.id).all(),
+            s=investment_summary(),
+            investors=GroundInvestor.query.order_by(GroundInvestor.sort_order, GroundInvestor.id).all(),
             **_filter_context(parse_period({"period": "all"})),
         )
+
+    def _parse_lakh(raw, label, allow_negative=False):
+        text = (raw or "").strip().replace(",", "").replace("\u20b9", "")
+        if text == "":
+            return Decimal("0")
+        try:
+            value = Decimal(text)
+        except (InvalidOperation, ValueError):
+            raise FormError(f"{label} must be a number.")
+        if not value.is_finite():
+            raise FormError(f"{label} must be a number.")
+        if not allow_negative and value < 0:
+            raise FormError(f"{label} cannot be negative.")
+        if abs(value) >= Decimal("100000"):
+            raise FormError(f"{label} looks too large \u2014 enter it in lakh.")
+        return q2(value)
 
     @app.post("/ground/save")
     @admin_required
     def ground_save():
-        """Save the lease value and each ex-partner's name / closing amount / account."""
-        rows = ExPartner.query.order_by(ExPartner.sort_order, ExPartner.id).all()
+        """Save the stated total and every investor row (all amounts in lakh)."""
+        rows = GroundInvestor.query.order_by(GroundInvestor.sort_order, GroundInvestor.id).all()
         try:
-            raw_lease = (request.form.get("lease_value") or "0").strip().replace(",", "")
-            try:
-                lease = Decimal(raw_lease or "0")
-            except (InvalidOperation, ValueError):
-                raise FormError("Lease value must be a number.")
-            if not lease.is_finite() or lease < 0 or lease >= Decimal("10000000000"):
-                raise FormError("Lease value looks wrong \u2014 check it.")
-
+            stated = _parse_lakh(request.form.get("stated_total"), "Stated total")
             seen = set()
-            for ex in rows:
-                name = _clip(request.form.get(f"name_{ex.id}"), 120)
+            for g in rows:
+                name = _clip(request.form.get(f"name_{g.id}"), 120)
                 if not name:
-                    raise FormError("Seller names cannot be blank.")
+                    raise FormError("Investor names cannot be blank.")
                 if name.lower() in seen:
-                    raise FormError(f"Duplicate seller name: {name}")
+                    raise FormError(f"Duplicate investor name: {name}")
                 seen.add(name.lower())
-                raw = (request.form.get(f"closing_{ex.id}") or "0").strip().replace(",", "")
+                raw_sh = (request.form.get(f"share_{g.id}") or "0").strip().replace("%", "")
                 try:
-                    closing = Decimal(raw or "0")
+                    share = Decimal(raw_sh or "0")
                 except (InvalidOperation, ValueError):
-                    raise FormError(f"Closing amount for {name} must be a number.")
-                if not closing.is_finite() or closing < 0 or closing >= Decimal("10000000000"):
-                    raise FormError(f"Closing amount for {name} looks wrong.")
-                ex.name = name
-                ex.closing_amount = q2(closing)
-                ex.account_number = _clip(request.form.get(f"account_{ex.id}"), 255)
+                    raise FormError(f"Shareholding for {name} must be a number.")
+                if not share.is_finite() or not (Decimal("0") <= share <= Decimal("100")):
+                    raise FormError(f"Shareholding for {name} must be between 0 and 100.")
+                g.name = name
+                g.shareholding = share
+                g.investment_amount = _parse_lakh(request.form.get(f"invest_{g.id}"), f"Investment for {name}")
+                g.amount_received = _parse_lakh(request.form.get(f"received_{g.id}"), f"Amount received for {name}")
+                g.adjustment = _parse_lakh(request.form.get(f"adjust_{g.id}"), f"Adjustment for {name}", allow_negative=True)
+                g.payment_details = _clip(request.form.get(f"details_{g.id}"), 255)
+                g.status_notes = _clip(request.form.get(f"notes_{g.id}"), 255)
         except FormError as exc:
             db.session.rollback()
             flash(str(exc), "error")
             return _safe_redirect(request.form.get("next"), "ground")
-
         try:
-            final_names = {ex.id: ex.name for ex in rows}
-            for ex in rows:
-                ex.name = f"__bails_tmp_{ex.id}__"
+            final_names = {g.id: g.name for g in rows}
+            for g in rows:
+                g.name = f"__bails_tmp_{g.id}__"
             db.session.flush()
-            for ex in rows:
-                ex.name = final_names[ex.id]
-            Setting.put(LEASE_VALUE_KEY, str(q2(lease)))
+            for g in rows:
+                g.name = final_names[g.id]
+            Setting.put(GROUND_TOTAL_KEY, str(q2(stated)))
             db.session.commit()
         except IntegrityError:
             db.session.rollback()
-            flash("Those seller names clash with each other. Please make them unique.", "error")
+            flash("Those investor names clash with each other. Please make them unique.", "error")
             return _safe_redirect(request.form.get("next"), "ground")
-        flash("Ground ledger updated.", "success")
+        flash("Investment summary updated.", "success")
         return _safe_redirect(request.form.get("next"), "ground")
 
-    def _ground_payment_from_form(form):
-        detail = _clip(form.get("detail"), 120)
-        if not detail:
-            raise FormError("A description is required.")
-        ex_id = form.get("ex_partner_id") or ""
-        partner_id = form.get("partner_id") or ""
-        ex = db.session.get(ExPartner, int(ex_id)) if ex_id.isdigit() else None
-        payer = db.session.get(Partner, int(partner_id)) if partner_id.isdigit() else None
-        if ex is None:
-            raise FormError("Choose who the payment was made to.")
-        if payer is None:
-            raise FormError("Choose which partner paid.")
-        raw_date = (form.get("txn_date") or "").strip()
-        when = None
-        if raw_date:
-            try:
-                when = datetime.strptime(raw_date, "%Y-%m-%d").date()
-            except ValueError:
-                raise FormError("Date must be in YYYY-MM-DD format.")
-        return {
-            "detail": detail,
-            "ex_partner_id": ex.id,
-            "partner_id": payer.id,
-            "txn_number": _clip(form.get("txn_number"), 80),
-            "txn_date": when,
-            "amount": _parse_amount(form.get("amount")),
-            "note": _clip(form.get("note"), 255),
-        }
-
-    @app.post("/ground/payment/new")
+    @app.post("/ground/investor/new")
     @admin_required
-    def ground_payment_create():
-        try:
-            payload = _ground_payment_from_form(request.form)
-        except FormError as exc:
-            flash(str(exc), "error")
+    def ground_investor_create():
+        name = _clip(request.form.get("name"), 120)
+        if not name:
+            flash("Enter a name for the new investor.", "error")
             return _safe_redirect(request.form.get("next"), "ground")
-        db.session.add(GroundPayment(**payload))
+        if GroundInvestor.query.filter(db.func.lower(GroundInvestor.name) == name.lower()).first():
+            flash(f"An investor named {name} already exists.", "error")
+            return _safe_redirect(request.form.get("next"), "ground")
+        last = db.session.query(db.func.max(GroundInvestor.sort_order)).scalar() or 0
+        db.session.add(GroundInvestor(name=name, sort_order=last + 1))
         db.session.commit()
-        flash(f"Payment of {app.config['CURRENCY_SYMBOL']}{fmt_money(payload['amount'])} recorded.", "success")
+        flash(f"Added {name}.", "success")
         return _safe_redirect(request.form.get("next"), "ground")
 
-    @app.post("/ground/payment/<int:payment_id>/edit")
+    @app.post("/ground/investor/<int:investor_id>/delete")
     @admin_required
-    def ground_payment_update(payment_id: int):
-        payment = db.session.get(GroundPayment, payment_id)
-        if payment is None:
+    def ground_investor_delete(investor_id: int):
+        inv = db.session.get(GroundInvestor, investor_id)
+        if inv is None:
             abort(404)
-        try:
-            payload = _ground_payment_from_form(request.form)
-        except FormError as exc:
-            flash(str(exc), "error")
-            return _safe_redirect(request.form.get("next"), "ground")
-        for key, value in payload.items():
-            setattr(payment, key, value)
+        db.session.delete(inv)
         db.session.commit()
-        flash("Payment updated.", "success")
-        return _safe_redirect(request.form.get("next"), "ground")
-
-    @app.post("/ground/payment/<int:payment_id>/delete")
-    @admin_required
-    def ground_payment_delete(payment_id: int):
-        payment = db.session.get(GroundPayment, payment_id)
-        if payment is None:
-            abort(404)
-        db.session.delete(payment)
-        db.session.commit()
-        flash("Payment deleted.", "success")
+        flash("Investor removed.", "success")
         return _safe_redirect(request.form.get("next"), "ground")
 
     # ---------------- watchmen ----------------

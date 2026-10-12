@@ -412,83 +412,61 @@ def watchman_settlement(period: Period) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# Ground purchase ledger
+# Ground investment summary  (all amounts in lakh)
 # --------------------------------------------------------------------------- #
 
-LEASE_VALUE_KEY = "ground_lease_value"
+GROUND_TOTAL_KEY = "ground_stated_total"   # stated total investment, in lakh
 
 
-def lease_value() -> Decimal:
-    return q2(Setting.get(LEASE_VALUE_KEY, "0") or "0")
+def stated_total() -> Decimal:
+    return q2(Setting.get(GROUND_TOTAL_KEY, "0") or "0")
 
 
-def ground_settlement() -> dict:
-    """The whole ground-purchase picture, all derived from the payments.
+def investment_summary() -> dict:
+    """The ground Investment Summary: one row per investor, totals, and tally.
 
-    Payments are the single source of truth: each adds to one ex-partner's
-    received total and one current partner's contributed total, so
-    ``paid_to_ex`` and ``paid_by_partners`` always equal the payment total.
+    Everything is in lakh. ``pending`` is computed per row; the column totals are
+    summed; and the listed investments are reconciled against the stated total
+    (they can differ by a pending inter-partner adjustment, which is flagged).
     """
-    from sqlalchemy import func
+    from models import GroundInvestor
 
-    from models import ExPartner, GroundPayment, Partner
+    investors = GroundInvestor.query.order_by(
+        GroundInvestor.sort_order, GroundInvestor.id
+    ).all()
 
-    lease = lease_value()
-
-    ex_partners = ExPartner.query.order_by(ExPartner.sort_order, ExPartner.id).all()
-    partners = Partner.query.order_by(Partner.sort_order, Partner.id).all()
-    payments = (
-        GroundPayment.query.order_by(GroundPayment.txn_date, GroundPayment.id).all()
-    )
-
-    # Sum payments grouped by seller and by paying partner, each in one query.
-    def _sum_by(column):
-        rows = (
-            db.session.query(column, func.coalesce(func.sum(GroundPayment.amount), 0))
-            .group_by(column)
-            .all()
-        )
-        return {key: q2(total) for key, total in rows if key is not None}
-
-    paid_to = _sum_by(GroundPayment.ex_partner_id)
-    paid_by = _sum_by(GroundPayment.partner_id)
-
-    ex_rows = []
-    for ex in ex_partners:
-        closing = q2(ex.closing_amount)
-        paid = paid_to.get(ex.id, Decimal("0"))
-        ex_rows.append({
-            "ex": ex, "name": ex.name, "account_number": ex.account_number,
-            "closing": closing, "paid": paid, "remaining": q2(closing - paid),
+    rows = []
+    sh_t = inv_t = rec_t = pend_t = adj_t = Decimal("0")
+    for g in investors:
+        shareholding = Decimal(g.shareholding or 0)
+        investment = q2(g.investment_amount)
+        received = q2(g.amount_received)
+        adjustment = q2(g.adjustment)
+        pending = q2(investment - received)
+        rows.append({
+            "investor": g, "name": g.name, "shareholding": shareholding,
+            "investment": investment, "received": received, "pending": pending,
+            "payment_details": g.payment_details, "adjustment": adjustment,
+            "status_notes": g.status_notes,
         })
+        sh_t += shareholding; inv_t += investment; rec_t += received
+        pend_t += pending; adj_t += adjustment
 
-    equity_total = sum((Decimal(p.equity_pct or 0) for p in partners), Decimal("0"))
-    partner_rows = []
-    for p in partners:
-        equity = Decimal(p.equity_pct or 0)
-        split = q2(lease * equity / Decimal("100")) if lease else Decimal("0")
-        paid = paid_by.get(p.id, Decimal("0"))
-        partner_rows.append({
-            "partner": p, "name": p.name, "equity": equity,
-            "split": split, "paid": paid, "remaining": q2(split - paid),
-        })
-
-    closing_total = q2(sum((r["closing"] for r in ex_rows), Decimal("0")))
-    split_total = q2(sum((r["split"] for r in partner_rows), Decimal("0")))
-    paid_total = q2(sum((q2(p.amount) for p in payments), Decimal("0")))
-
+    stated = stated_total()
     return {
-        "lease": lease,
-        "ex_rows": ex_rows,
-        "partner_rows": partner_rows,
-        "payments": payments,
-        "closing_total": closing_total,
-        "split_total": split_total,
-        "paid_total": paid_total,
-        "remaining_total": q2(lease - paid_total),
-        # Tally checks (the paid side always balances by construction).
-        "closing_matches_lease": closing_total == lease,
-        "split_matches_lease": split_total == lease,
-        "equity_total": q2(equity_total),
-        "equity_balanced": q2(equity_total) == Decimal("100.00"),
+        "rows": rows,
+        "stated_total": stated,
+        "shareholding_total": q2(sh_t),
+        "investment_total": q2(inv_t),
+        "received_total": q2(rec_t),
+        "pending_total": q2(pend_t),
+        "adjustment_total": q2(adj_t),
+        # Tally checks.
+        "shareholding_ok": q2(sh_t) == Decimal("100.00"),
+        "adjustment_balanced": q2(adj_t) == Decimal("0.00"),
+        "reconcile_gap": q2(inv_t - stated),              # listed vs stated
+        "investment_matches_stated": q2(inv_t) == stated,
+        "tally_ok": (q2(sh_t) == Decimal("100.00")
+                     and q2(adj_t) == Decimal("0.00")
+                     and q2(inv_t) == stated),
     }

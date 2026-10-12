@@ -179,74 +179,46 @@
   modal.addEventListener("click", function (event) { if (event.target === modal) close(); });
 })();
 
-/* Ground purchase: payment dialog + live seller recalculation (admin-only). */
+
+/* Ground investment summary: live pending + totals as the admin edits (lakh). */
 (function () {
   "use strict";
-  var modal = document.getElementById("gpayModal");
-  var form = document.getElementById("gpayForm");
-  if (modal && form) {
-    var title = document.getElementById("gpayModalTitle");
-    var createAction = form.getAttribute("action");
-    var f = function (n) { return form.querySelector('[name="' + n + '"]'); };
-    var open = function () { if (modal.showModal) modal.showModal(); else modal.setAttribute("open", ""); };
-    var close = function () { if (modal.close) modal.close(); else modal.removeAttribute("open"); };
+  var form = document.getElementById("groundForm");
+  if (!form) return;
+  var cur = (document.body.getAttribute("data-currency") || "\u20b9");
+  var num = function (v) {
+    var n = parseFloat(String(v == null ? "" : v).replace(/[^0-9.\-]/g, ""));
+    return isFinite(n) ? n : 0;
+  };
+  var trim = function (v) {
+    var s = (Math.round(v * 100) / 100).toFixed(2);
+    if (s.indexOf(".") >= 0) s = s.replace(/0+$/, "").replace(/\.$/, "");
+    return s || "0";
+  };
+  var money = function (v) { return cur + trim(v); };
 
-    document.addEventListener("click", function (event) {
-      if (event.target.closest("[data-open-gpay]")) {
-        form.setAttribute("action", createAction); form.reset();
-        title.textContent = "Record payment";
-        var d = f("txn_date"); if (d && !d.value) d.value = new Date().toISOString().slice(0, 10);
-        open(); return;
-      }
-      var ed = event.target.closest("[data-edit-gpay]");
-      if (ed) {
-        var data = ed.dataset;
-        form.setAttribute("action", "/ground/payment/" + data.id + "/edit");
-        title.textContent = "Edit payment";
-        f("detail").value = data.detail || "";
-        f("ex_partner_id").value = data.ex || "";
-        f("partner_id").value = data.partner || "";
-        f("txn_number").value = data.number || "";
-        f("txn_date").value = data.date || "";
-        f("amount").value = data.amount || "";
-        f("note").value = data.note || "";
-        open(); return;
-      }
-      if (event.target.closest("[data-close-gpay]")) close();
+  function recalc() {
+    var shareT = 0, invT = 0, recT = 0, pendT = 0, adjT = 0;
+    form.querySelectorAll("[data-ground-row]").forEach(function (row) {
+      var inv = num(row.querySelector("[data-ground-invest]").value);
+      var rec = num(row.querySelector("[data-ground-received]").value);
+      var share = num(row.querySelector("[data-ground-share]").value);
+      var adj = num(row.querySelector("[data-ground-adjust]").value);
+      var pend = inv - rec;
+      var cell = row.querySelector("[data-ground-pending]");
+      cell.textContent = money(pend);
+      cell.classList.toggle("v-neg", pend > 0);
+      cell.classList.toggle("v-pos", pend <= 0);
+      shareT += share; invT += inv; recT += rec; pendT += pend; adjT += adj;
     });
-    modal.addEventListener("click", function (event) { if (event.target === modal) close(); });
+    var set = function (sel, text) { var el = form.querySelector(sel); if (el) el.textContent = text; };
+    set("[data-ground-share-total]", trim(shareT) + "%");
+    set("[data-ground-invest-total]", money(invT));
+    set("[data-ground-received-total]", money(recT));
+    set("[data-ground-pending-total]", money(pendT));
+    set("[data-ground-adjust-total]", money(adjT));
   }
-
-  // Live recalculation of seller remaining + totals as the admin edits the grid.
-  var groundForm = document.getElementById("groundForm");
-  if (groundForm) {
-    var cur = (document.body.getAttribute("data-currency") || "₹");
-    var num = function (s) {
-      var v = parseFloat(String(s == null ? "" : s).replace(/[^0-9.\-]/g, ""));
-      return isFinite(v) ? v : 0;
-    };
-    var fmt = function (v) {
-      var neg = v < 0; v = Math.abs(Math.round(v)); var s = String(v);
-      if (s.length > 3) { var t = s.slice(-3), h = s.slice(0, -3), g = [];
-        while (h.length > 2) { g.unshift(h.slice(-2)); h = h.slice(0, -2); } if (h) g.unshift(h);
-        s = g.join(",") + "," + t; }
-      return (neg ? "-" : "") + cur + s;
-    };
-    var recalc = function () {
-      var closingTotal = 0, paidTotal = 0;
-      groundForm.querySelectorAll("[data-ground-seller]").forEach(function (row) {
-        var closing = num(row.querySelector("[data-ground-closing]").value);
-        var paid = num(row.querySelector("[data-ground-closing]").getAttribute("data-paid"));
-        row.querySelector("[data-ground-remaining]").textContent = fmt(closing - paid);
-        closingTotal += closing; paidTotal += paid;
-      });
-      var ct = groundForm.querySelector("[data-ground-closing-total]");
-      var rt = groundForm.querySelector("[data-ground-remaining-total]");
-      if (ct) ct.textContent = fmt(closingTotal);
-      if (rt) rt.textContent = fmt(closingTotal - paidTotal);
-    };
-    groundForm.addEventListener("input", function (e) {
-      if (e.target.matches("[data-ground-closing], [data-ground-lease]")) recalc();
-    });
-  }
+  form.addEventListener("input", function (e) {
+    if (e.target.matches("[data-ground-invest],[data-ground-received],[data-ground-share],[data-ground-adjust],[data-ground-stated]")) recalc();
+  });
 })();
