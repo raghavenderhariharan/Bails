@@ -346,3 +346,13 @@ def test_frozen_header_survives(app, tmp_path):
     build(app).save(path)
     sheet = zipfile.ZipFile(path).read("xl/worksheets/sheet2.xml").decode()
     assert 'state="frozen"' in sheet
+
+
+def test_xlsx_filename_uses_todays_date_not_the_period_end(app):
+    """The download filename should reflect when it was taken, not the period."""
+    import datetime
+    today = datetime.date.today().isoformat()
+    client = admin(app)
+    for query in ("period=month&month=2026-10", "period=year&year=2026", "period=all"):
+        cd = client.get(f"/export.xlsx?{query}").headers["Content-Disposition"]
+        assert f"BailsLedgerBook-{today}.xlsx" in cd, cd

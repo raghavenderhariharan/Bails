@@ -1012,7 +1012,9 @@ def _register_routes(app: Flask) -> None:
     def export_xlsx():
         period = parse_period(request.args)
         payload = _workbook_bytes(period)
-        stamp = (period.end or date.today()).isoformat()
+        # Stamp the filename with the download date (when it was taken), not the
+        # end of the period being exported.
+        stamp = date.today().isoformat()
         return Response(
             payload,
             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
