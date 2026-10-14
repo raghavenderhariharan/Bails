@@ -1,168 +1,76 @@
 {% extends "base.html" %}
-{% block title %}Ground Investment{% endblock %}
+{% block title %}Ground Payment{% endblock %}
 
 {% block content %}
 <div class="page-head">
   <div>
-    <h1>Ground &mdash; Investment Summary</h1>
-    <div class="page-head__sub">
-      Stated Total Investment Amount: <strong>{{ CURRENCY }}{{ s.stated_total | lakh }} lakh</strong>
-      &middot; all amounts in {{ CURRENCY }} lakh
-    </div>
+    <h1>Ground Payment Ledger</h1>
+    <div class="page-head__sub">Purchase of the ground from the previous owners &mdash; what each seller is owed, and what each partner has contributed.</div>
   </div>
+  <span class="topbar__spacer"></span>
+  <button class="btn btn--primary" type="button" data-open-gpay>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+    Record payment
+  </button>
 </div>
 
-{# ----- summary tiles ----- #}
+{# ----- summary tiles: rolled up from the detailed ledger below ----- #}
 <div class="grid grid--kpi" style="margin-bottom:1rem">
   <div class="kpi kpi--net">
-    <div class="kpi__label">Stated total</div>
-    <div class="kpi__value"><span class="cur">{{ CURRENCY }}</span>{{ s.stated_total | lakh }}<span class="cur" style="margin-left:.2em">lakh</span></div>
-    <div class="kpi__meta">Agreed investment</div>
+    <div class="kpi__label">Lease value</div>
+    <div class="kpi__value"><span class="cur">{{ CURRENCY }}</span>{{ g.lease | money }}</div>
+    <div class="kpi__meta">Agreed purchase price</div>
   </div>
   <div class="kpi kpi--credit">
-    <div class="kpi__label">Received</div>
-    <div class="kpi__value kpi__value--credit"><span class="cur">{{ CURRENCY }}</span>{{ s.received_total | lakh }}<span class="cur" style="margin-left:.2em">lakh</span></div>
-    <div class="kpi__meta">Across all investors</div>
+    <div class="kpi__label">Paid to date</div>
+    <div class="kpi__value kpi__value--credit"><span class="cur">{{ CURRENCY }}</span>{{ g.paid_total | money }}</div>
+    <div class="kpi__meta">{{ g.payments | length }} payment{{ '' if g.payments | length == 1 else 's' }}</div>
   </div>
   <div class="kpi kpi--debit">
-    <div class="kpi__label">Pending</div>
-    <div class="kpi__value kpi__value--debit"><span class="cur">{{ CURRENCY }}</span>{{ s.pending_total | lakh }}<span class="cur" style="margin-left:.2em">lakh</span></div>
-    <div class="kpi__meta">Investment less received</div>
+    <div class="kpi__label">Remaining to pay</div>
+    <div class="kpi__value {{ 'v-neg' if g.remaining_total > 0 else 'v-pos' }}"><span class="cur">{{ CURRENCY }}</span>{{ g.remaining_total | money }}</div>
+    <div class="kpi__meta">Lease less paid</div>
   </div>
-  <div class="kpi {{ 'kpi--credit' if s.tally_ok else 'kpi--debit' }}">
+  <div class="kpi {{ 'kpi--credit' if g.tally_ok else 'kpi--debit' }}">
     <div class="kpi__label">Tally check</div>
     <div class="kpi__value" style="font-size:1.05rem;margin-top:.5rem">
-      {% if s.tally_ok %}
+      {% if g.tally_ok %}
         <span class="tag tag--credit">Everything tallies</span>
       {% else %}
-        <span class="tag tag--debit">Needs reconciliation</span>
+        <span class="tag tag--debit">Needs attention</span>
       {% endif %}
     </div>
-    <div class="kpi__meta">Shareholding, totals &amp; adjustments</div>
+    <div class="kpi__meta">Shares, closing amounts &amp; partner split vs lease</div>
   </div>
 </div>
 
-{% if not s.shareholding_ok %}
+{% if not g.shares_balanced %}
   <div class="banner">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
-    <span>Shareholding totals <strong>{{ s.shareholding_total }}%</strong>, not 100%.</span>
+    <span>Sellers&rsquo; shares total <strong>{{ g.share_total }}%</strong>, not 100%.</span>
   </div>
 {% endif %}
-{% if s.reconcile_gap != 0 %}
+{% if not g.closing_matches_lease %}
   <div class="banner">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
-    <span>Listed investments total <strong>{{ CURRENCY }}{{ s.investment_total | lakh }} lakh</strong>,
-      which differs from the stated <strong>{{ CURRENCY }}{{ s.stated_total | lakh }} lakh</strong>
-      by <strong>{{ CURRENCY }}{{ s.reconcile_gap | lakh }} lakh</strong>
-      {% if s.adjustment_balanced %}(a pending inter-partner adjustment &mdash; reimbursements net to zero){% endif %}.
-      Listed individual amounts/balances require reconciliation.</span>
+    <span>Sellers&rsquo; closing amounts total <strong>{{ CURRENCY }}{{ g.closing_total | money }}</strong>,
+      but the lease value is <strong>{{ CURRENCY }}{{ g.lease | money }}</strong>. They should match.</span>
+  </div>
+{% endif %}
+{% if not g.equity_balanced %}
+  <div class="banner">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+    <span>Partner equity totals <strong>{{ g.equity_total }}%</strong>, not 100% &mdash; fix it on the
+      <a href="{{ url_for('partners') }}">Partner Profit</a> tab so the split matches the lease.</span>
   </div>
 {% endif %}
 
-<div class="card" style="margin-bottom:1rem">
-  <div class="card__head">
-    <h2>Investment Summary</h2>
-    <span class="spacer"></span>
-    <span class="small muted">Edit any cell; pending &amp; totals calculate themselves. Amounts in {{ CURRENCY }} lakh.</span>
-  </div>
-  <div class="card__body">
-    <form method="post" action="{{ url_for('ground_save') }}" id="groundForm">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input type="hidden" name="next" value="{{ request.full_path }}">
-
-      <div class="filters__row" style="margin-bottom:1rem">
-        <div class="field" style="max-width:240px">
-          <label for="stated_total">Stated total investment ({{ CURRENCY }} lakh)</label>
-          <input type="text" inputmode="decimal" id="stated_total" name="stated_total"
-                 value="{{ s.stated_total | lakh }}" data-ground-stated class="num">
-        </div>
-      </div>
-
-      <div class="table-scroll">
-        <table class="ledger" id="investTable">
-          <thead>
-            <tr>
-              <th>Investor / Partner</th>
-              <th class="num" style="width:95px">Share&nbsp;%</th>
-              <th class="num" style="width:120px">Investment</th>
-              <th class="num" style="width:120px">Received</th>
-              <th class="num" style="width:110px">Pending</th>
-              <th style="min-width:220px">Payment details</th>
-              <th class="num" style="width:120px">Adjustment</th>
-              <th style="min-width:200px">Status / Notes</th>
-              <th class="col-actions"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in s.rows %}
-              <tr data-ground-row>
-                <td><input type="text" name="name_{{ row.investor.id }}" value="{{ row.name }}" maxlength="120" required></td>
-                <td><input type="text" inputmode="decimal" class="num" name="share_{{ row.investor.id }}" value="{{ row.shareholding | round(3) | float | round(2) }}" data-ground-share></td>
-                <td><input type="text" inputmode="decimal" class="num" name="invest_{{ row.investor.id }}" value="{{ row.investment | lakh }}" data-ground-invest></td>
-                <td><input type="text" inputmode="decimal" class="num" name="received_{{ row.investor.id }}" value="{{ row.received | lakh }}" data-ground-received></td>
-                <td class="num {{ 'v-neg' if row.pending > 0 else 'v-pos' }}" data-ground-pending>{{ CURRENCY }}{{ row.pending | lakh }}</td>
-                <td><input type="text" name="details_{{ row.investor.id }}" value="{{ row.payment_details }}" maxlength="255"></td>
-                <td><input type="text" inputmode="decimal" class="num" name="adjust_{{ row.investor.id }}" value="{{ row.adjustment | lakh }}" data-ground-adjust></td>
-                <td><input type="text" name="notes_{{ row.investor.id }}" value="{{ row.status_notes }}" maxlength="255"></td>
-                <td class="col-actions">
-                  <button class="btn btn--sm btn--danger" type="submit"
-                          formaction="{{ url_for('ground_investor_delete', investor_id=row.investor.id) }}"
-                          formnovalidate
-                          data-confirm="Remove {{ row.name }} from the investment summary?">Remove</button>
-                </td>
-              </tr>
-            {% endfor %}
-          </tbody>
-          <tfoot>
-            <tr>
-              <td>TOTAL</td>
-              <td class="num" data-ground-share-total>{{ s.shareholding_total }}%</td>
-              <td class="num" data-ground-invest-total>{{ CURRENCY }}{{ s.investment_total | lakh }}</td>
-              <td class="num" data-ground-received-total>{{ CURRENCY }}{{ s.received_total | lakh }}</td>
-              <td class="num" data-ground-pending-total>{{ CURRENCY }}{{ s.pending_total | lakh }}</td>
-              <td class="small muted">Based on listed entries</td>
-              <td class="num" data-ground-adjust-total>{{ CURRENCY }}{{ s.adjustment_total | lakh }}</td>
-              <td class="small muted">{% if not s.tally_ok %}Requires reconciliation{% else %}Tallies{% endif %}</td>
-              <td></td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-
-      <div style="display:flex;justify-content:flex-end;margin-top:1rem">
-        <button class="btn btn--primary" type="submit">Save investment summary</button>
-      </div>
-    </form>
-
-    {# add a new investor #}
-    <form method="post" action="{{ url_for('ground_investor_create') }}" class="filters__row" style="margin-top:1rem;gap:.6rem;align-items:flex-end">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input type="hidden" name="next" value="{{ request.full_path }}">
-      <div class="field" style="max-width:260px">
-        <label for="new_investor">Add investor</label>
-        <input type="text" id="new_investor" name="name" placeholder="Name" autocomplete="off">
-      </div>
-      <button class="btn btn--ghost btn--sm" type="submit">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" style="width:15px;height:15px"><path d="M12 5v14M5 12h14"/></svg>
-        Add row
-      </button>
-    </form>
-  </div>
-</div>
-
-<div class="page-head" style="margin-top:2rem">
-  <div>
-    <h2 style="font-size:1.2rem">Detailed ledger &mdash; sellers &amp; payments</h2>
-    <div class="page-head__sub">The original ground-purchase breakdown: what each seller is owed, what each partner has contributed, and every payment.</div>
-  </div>
-</div>
-
-{# ----- sellers (ex-partners): editable closing amounts, computed paid/remaining ----- #}
+{# ----- sellers: editable share % / closing amount, computed paid & remaining ----- #}
 <div class="card" style="margin-bottom:1rem">
   <div class="card__head">
     <h2>Sellers &mdash; amounts owed (closing)</h2>
     <span class="spacer"></span>
-    <span class="small muted">Edit names, closing amounts and account numbers. Paid &amp; remaining calculate themselves.</span>
+    <span class="small muted">Edit names, share %, closing amounts and account numbers. Paid &amp; remaining calculate themselves.</span>
   </div>
   <div class="card__body">
     <form method="post" action="{{ url_for('ground_sellers_save') }}" id="sellersForm">
@@ -182,6 +90,7 @@
           <thead>
             <tr>
               <th>Seller (ex-partner)</th>
+              <th class="num" style="width:100px">Share %</th>
               <th>Account number</th>
               <th class="num" style="width:150px">Closing amount</th>
               <th class="num">Paid</th>
@@ -192,17 +101,21 @@
             {% for row in g.ex_rows %}
               <tr data-ground-seller>
                 <td><input type="text" name="sname_{{ row.ex.id }}" value="{{ row.name }}" maxlength="120" required></td>
+                <td><input type="text" inputmode="decimal" class="num" name="share_{{ row.ex.id }}"
+                           value="{{ row.share | round(3) | float | round(2) }}" data-ground-share></td>
                 <td><input type="text" name="account_{{ row.ex.id }}" value="{{ row.account_number }}" maxlength="255"></td>
                 <td><input type="text" inputmode="decimal" class="num" name="closing_{{ row.ex.id }}"
                            value="{{ row.closing | money }}" data-ground-closing data-paid="{{ row.paid }}"></td>
-                <td class="num v-pos" data-ground-paid>{{ CURRENCY }}{{ row.paid | money }}</td>
-                <td class="num" data-ground-remaining>{{ CURRENCY }}{{ row.remaining | money }}</td>
+                <td class="num v-pos">{{ CURRENCY }}{{ row.paid | money }}</td>
+                <td class="num {{ 'v-neg' if row.remaining > 0 else 'v-pos' }}" data-ground-remaining>{{ CURRENCY }}{{ row.remaining | money }}</td>
               </tr>
             {% endfor %}
           </tbody>
           <tfoot>
             <tr>
-              <td colspan="2">Total</td>
+              <td>Total</td>
+              <td class="num" data-ground-share-total>{{ g.share_total }}%</td>
+              <td></td>
               <td class="num" data-ground-closing-total>{{ CURRENCY }}{{ g.closing_total | money }}</td>
               <td class="num">{{ CURRENCY }}{{ g.paid_total | money }}</td>
               <td class="num" data-ground-remaining-total>{{ CURRENCY }}{{ (g.closing_total - g.paid_total) | money }}</td>
@@ -217,7 +130,6 @@
   </div>
 </div>
 
-{# ----- current partners: computed split / paid / remaining ----- #}
 <div class="card" style="margin-bottom:1rem">
   <div class="card__head">
     <h2>Partners &mdash; contributions</h2>

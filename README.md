@@ -41,7 +41,7 @@ for exactly that on create, edit, delete and the equity form.
 | **Income · Credit** | Every credit entry for the period (oldest first), with category filter, search, subtotal and per-category bars |
 | **Expenses · Debit** | The same for debits |
 | **Partner Profit** | Each partner's share of net profit for the period, plus an editable equity split |
-| **Ground Payment** (Admin) | Investment Summary (per investor: shareholding, investment, received, pending, adjustments) on top of the detailed sellers/partners/payments ledger — everything editable, totals auto-computed |
+| **Ground Payment** (Admin) | Ground-purchase ledger: summary tiles rolled up from it, sellers' share % and closing amounts vs paid, partners' contributions, and every payment |
 | **Watchmen** | Each watchman's fixed monthly salary, less petty cash (expenses tagged to them), = net payable |
 | **All Transactions** | Credit and debit together, oldest first, with a running balance that builds downwards |
 
@@ -63,11 +63,12 @@ Other features:
   12-month table, standing commitments), a **Transaction Ledger** sheet with the
   same twelve columns and a running balance, plus a **Partner Profit** sheet.
   Rows read oldest-first, the way a ledger book does.
-- **Ground investment summary (Admin only)** — one editable table (like a
-  spreadsheet) of each investor's shareholding, investment, amount received
-  and notes; pending and all column totals calculate automatically, and the
-  page flags when the listed investments don't reconcile to the stated total.
-  Amounts are in lakh.
+- **Ground Payment ledger (Admin only)** — tracks buying the ground from its
+  previous owners: each seller's share % and closing amount vs what they have
+  been paid, each current partner's share of the lease vs what they have
+  contributed, and every payment. The summary tiles at the top are rolled up
+  from this ledger, and payments are the single source of truth, so both
+  sides always tally. Editable inline; totals recompute automatically.
 - **Watchmen settlement** — each of the two watchmen has a fixed monthly
   salary (default ₹20,000). Petty cash is recorded as an ordinary **expense**
   on the Expenses tab with the watchman picked in the "Petty cash for watchman"

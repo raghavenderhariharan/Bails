@@ -412,66 +412,6 @@ def watchman_settlement(period: Period) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# Ground investment summary  (all amounts in lakh)
-# --------------------------------------------------------------------------- #
-
-GROUND_TOTAL_KEY = "ground_stated_total"   # stated total investment, in lakh
-
-
-def stated_total() -> Decimal:
-    return q2(Setting.get(GROUND_TOTAL_KEY, "0") or "0")
-
-
-def investment_summary() -> dict:
-    """The ground Investment Summary: one row per investor, totals, and tally.
-
-    Everything is in lakh. ``pending`` is computed per row; the column totals are
-    summed; and the listed investments are reconciled against the stated total
-    (they can differ by a pending inter-partner adjustment, which is flagged).
-    """
-    from models import GroundInvestor
-
-    investors = GroundInvestor.query.order_by(
-        GroundInvestor.sort_order, GroundInvestor.id
-    ).all()
-
-    rows = []
-    sh_t = inv_t = rec_t = pend_t = adj_t = Decimal("0")
-    for g in investors:
-        shareholding = Decimal(g.shareholding or 0)
-        investment = q2(g.investment_amount)
-        received = q2(g.amount_received)
-        adjustment = q2(g.adjustment)
-        pending = q2(investment - received)
-        rows.append({
-            "investor": g, "name": g.name, "shareholding": shareholding,
-            "investment": investment, "received": received, "pending": pending,
-            "payment_details": g.payment_details, "adjustment": adjustment,
-            "status_notes": g.status_notes,
-        })
-        sh_t += shareholding; inv_t += investment; rec_t += received
-        pend_t += pending; adj_t += adjustment
-
-    stated = stated_total()
-    return {
-        "rows": rows,
-        "stated_total": stated,
-        "shareholding_total": q2(sh_t),
-        "investment_total": q2(inv_t),
-        "received_total": q2(rec_t),
-        "pending_total": q2(pend_t),
-        "adjustment_total": q2(adj_t),
-        # Tally checks.
-        "shareholding_ok": q2(sh_t) == Decimal("100.00"),
-        "adjustment_balanced": q2(adj_t) == Decimal("0.00"),
-        "reconcile_gap": q2(inv_t - stated),              # listed vs stated
-        "investment_matches_stated": q2(inv_t) == stated,
-        "tally_ok": (q2(sh_t) == Decimal("100.00")
-                     and q2(adj_t) == Decimal("0.00")
-                     and q2(inv_t) == stated),
-    }
-
-# --------------------------------------------------------------------------- #
 # Ground purchase ledger (seller / partner / payment detail)
 # --------------------------------------------------------------------------- #
 LEASE_VALUE_KEY = "ground_lease_value"
@@ -518,6 +458,7 @@ def ground_settlement() -> dict:
         paid = paid_to.get(ex.id, Decimal("0"))
         ex_rows.append({
             "ex": ex, "name": ex.name, "account_number": ex.account_number,
+            "share": Decimal(ex.share_pct or 0),
             "closing": closing, "paid": paid, "remaining": q2(closing - paid),
         })
 
@@ -533,6 +474,7 @@ def ground_settlement() -> dict:
         })
 
     closing_total = q2(sum((r["closing"] for r in ex_rows), Decimal("0")))
+    share_total = q2(sum((r["share"] for r in ex_rows), Decimal("0")))
     split_total = q2(sum((r["split"] for r in partner_rows), Decimal("0")))
     paid_total = q2(sum((q2(p.amount) for p in payments), Decimal("0")))
 
@@ -550,4 +492,12 @@ def ground_settlement() -> dict:
         "split_matches_lease": split_total == lease,
         "equity_total": q2(equity_total),
         "equity_balanced": q2(equity_total) == Decimal("100.00"),
+        # Sellers' shareholding in the ground.
+        "share_total": share_total,
+        "shares_balanced": share_total == Decimal("100.00"),
+        # One flag for the summary tile.
+        "tally_ok": (closing_total == lease
+                     and q2(sum((r["split"] for r in partner_rows), Decimal("0"))) == lease
+                     and share_total == Decimal("100.00")
+                     and q2(equity_total) == Decimal("100.00")),
     }

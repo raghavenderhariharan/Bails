@@ -145,27 +145,6 @@ class Watchman(db.Model):
         return f"<Watchman {self.name} {self.monthly_salary}/mo>"
 
 
-class GroundInvestor(db.Model):
-    """One investor/partner in the ground purchase (Investment Summary).
-
-    All amounts are stored **in lakh** (e.g. 7.90 = 7.9 lakh), matching how the
-    purchase is tracked. ``pending`` is always computed, never stored.
-    """
-
-    __tablename__ = "ground_investors"
-
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(120), nullable=False, unique=True)
-    shareholding = db.Column(db.Numeric(6, 3), nullable=False, default=Decimal("0"))  # percent
-    investment_amount = db.Column(db.Numeric(12, 2), nullable=False, default=Decimal("0"))  # lakh
-    amount_received = db.Column(db.Numeric(12, 2), nullable=False, default=Decimal("0"))  # lakh
-    payment_details = db.Column(db.String(255), nullable=False, default="")
-    adjustment = db.Column(db.Numeric(12, 2), nullable=False, default=Decimal("0"))  # lakh, +/-
-    status_notes = db.Column(db.String(255), nullable=False, default="")
-    sort_order = db.Column(db.Integer, nullable=False, default=0)
-
-    def __repr__(self):  # pragma: no cover - debugging aid
-        return f"<GroundInvestor {self.name} {self.shareholding}%>"
 class ExPartner(db.Model):
     """A seller the ground is being bought from (previous owner).
 
@@ -178,11 +157,13 @@ class ExPartner(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), nullable=False, unique=True)
     closing_amount = db.Column(db.Numeric(12, 2), nullable=False, default=Decimal("0"))
+    # The seller's shareholding in the ground, as a percent (e.g. 20 = 20%).
+    share_pct = db.Column(db.Numeric(6, 3), nullable=False, default=Decimal("0"))
     account_number = db.Column(db.String(255), nullable=False, default="")
     sort_order = db.Column(db.Integer, nullable=False, default=0)
 
     def __repr__(self):  # pragma: no cover - debugging aid
-        return f"<ExPartner {self.name} {self.closing_amount}>"
+        return f"<ExPartner {self.name} {self.share_pct}% {self.closing_amount}>"
 
 
 class GroundPayment(db.Model):

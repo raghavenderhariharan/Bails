@@ -45,7 +45,8 @@ def main():
     print(f"Restored {counts['transactions']} transactions "
           f"({counts.get('watchman_tagged', 0)} tagged to a watchman), "
           f"{counts['partners']} partners, {counts.get('watchmen', 0)} watchmen, "
-          f"{counts.get('ground_investors', 0)} ground investors, "
+          f"{counts.get('ex_partners', 0)} sellers, "
+          f"{counts.get('ground_payments', 0)} ground payments, "
           f"{counts['settings']} settings.")
 
 

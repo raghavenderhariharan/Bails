@@ -180,46 +180,53 @@
 })();
 
 
-/* Ground investment summary: live pending + totals as the admin edits (lakh). */
+/* Ground ledger sellers grid: live remaining + totals as the admin edits. */
 (function () {
   "use strict";
-  var form = document.getElementById("groundForm");
+  var form = document.getElementById("sellersForm");
   if (!form) return;
   var cur = (document.body.getAttribute("data-currency") || "\u20b9");
   var num = function (v) {
     var n = parseFloat(String(v == null ? "" : v).replace(/[^0-9.\-]/g, ""));
     return isFinite(n) ? n : 0;
   };
-  var trim = function (v) {
-    var s = (Math.round(v * 100) / 100).toFixed(2);
-    if (s.indexOf(".") >= 0) s = s.replace(/0+$/, "").replace(/\.$/, "");
-    return s || "0";
+  // Indian digit grouping, whole rupees: 1234567 -> 12,34,567
+  var inr = function (v) {
+    var neg = v < 0, s = String(Math.abs(Math.round(v)));
+    if (s.length > 3) {
+      var tail = s.slice(-3), head = s.slice(0, -3), g = [];
+      while (head.length > 2) { g.unshift(head.slice(-2)); head = head.slice(0, -2); }
+      if (head) g.unshift(head);
+      s = g.join(",") + "," + tail;
+    }
+    return (neg ? "-" : "") + cur + s;
   };
-  var money = function (v) { return cur + trim(v); };
+  var pct = function (v) {
+    var s = (Math.round(v * 100) / 100).toFixed(2);
+    return s + "%";
+  };
 
   function recalc() {
-    var shareT = 0, invT = 0, recT = 0, pendT = 0, adjT = 0;
-    form.querySelectorAll("[data-ground-row]").forEach(function (row) {
-      var inv = num(row.querySelector("[data-ground-invest]").value);
-      var rec = num(row.querySelector("[data-ground-received]").value);
+    var closingT = 0, paidT = 0, shareT = 0;
+    form.querySelectorAll("[data-ground-seller]").forEach(function (row) {
+      var closingInput = row.querySelector("[data-ground-closing]");
+      var closing = num(closingInput.value);
+      var paid = num(closingInput.getAttribute("data-paid"));
       var share = num(row.querySelector("[data-ground-share]").value);
-      var adj = num(row.querySelector("[data-ground-adjust]").value);
-      var pend = inv - rec;
-      var cell = row.querySelector("[data-ground-pending]");
-      cell.textContent = money(pend);
-      cell.classList.toggle("v-neg", pend > 0);
-      cell.classList.toggle("v-pos", pend <= 0);
-      shareT += share; invT += inv; recT += rec; pendT += pend; adjT += adj;
+      var remaining = closing - paid;
+      var cell = row.querySelector("[data-ground-remaining]");
+      cell.textContent = inr(remaining);
+      cell.classList.toggle("v-neg", remaining > 0);
+      cell.classList.toggle("v-pos", remaining <= 0);
+      closingT += closing; paidT += paid; shareT += share;
     });
     var set = function (sel, text) { var el = form.querySelector(sel); if (el) el.textContent = text; };
-    set("[data-ground-share-total]", trim(shareT) + "%");
-    set("[data-ground-invest-total]", money(invT));
-    set("[data-ground-received-total]", money(recT));
-    set("[data-ground-pending-total]", money(pendT));
-    set("[data-ground-adjust-total]", money(adjT));
+    set("[data-ground-share-total]", pct(shareT));
+    set("[data-ground-closing-total]", inr(closingT));
+    set("[data-ground-remaining-total]", inr(closingT - paidT));
   }
   form.addEventListener("input", function (e) {
-    if (e.target.matches("[data-ground-invest],[data-ground-received],[data-ground-share],[data-ground-adjust],[data-ground-stated]")) recalc();
+    if (e.target.matches("[data-ground-closing],[data-ground-share],[data-ground-lease]")) recalc();
   });
 })();
 

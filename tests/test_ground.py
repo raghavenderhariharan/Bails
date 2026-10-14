@@ -1,5 +1,6 @@
-"""Ground Investment Summary: admin-only, pending/totals auto-computed in lakh,
-reconciliation flagged, editable like a spreadsheet, backed up."""
+"""Ground Payment ledger: admin-only, summary rolled up from the sellers +
+payments ledger, share % per seller, editable like a spreadsheet, backed up."""
+import io
 import json
 import os
 import re
@@ -48,169 +49,176 @@ def partner(app):
 
 # -------------------------------- seeding ---------------------------------- #
 
-def test_seeded_from_image(app):
-    from finance import investment_summary
+def test_seeded_from_spreadsheet(app):
+    from finance import ground_settlement
     with app.app_context():
-        s = investment_summary()
-    assert len(s["rows"]) == 6
-    assert s["stated_total"] == Decimal("39.50")
-    assert [r["name"] for r in s["rows"]] == [
-        "Kishore", "Naresh Jain", "Bhanu K", "Nagaraju", "Sridhar Reddy", "Wowinsite LLP"]
-    by = {r["name"]: r for r in s["rows"]}
-    assert by["Bhanu K"]["investment"] == Decimal("8.85")
-    assert by["Sridhar Reddy"]["adjustment"] == Decimal("-0.95")
+        g = ground_settlement()
+    assert g["lease"] == Decimal("3950000.00")
+    assert g["closing_total"] == Decimal("3950000.00")
+    assert g["paid_total"] == Decimal("1790000.00")
+    assert g["remaining_total"] == Decimal("2160000.00")
+    assert len(g["ex_rows"]) == 6
+    assert len(g["payments"]) == 6
 
 
-# ----------------------------- the calculation ----------------------------- #
+# --------------------------- the calculation ------------------------------- #
 
-def test_totals_match_the_image(app):
-    from finance import investment_summary
+def test_everything_tallies(app):
+    from finance import ground_settlement
     with app.app_context():
-        s = investment_summary()
-    assert s["shareholding_total"] == Decimal("100.00")
-    assert s["received_total"] == Decimal("17.90")
-    assert s["pending_total"] == Decimal("22.55")
-    assert s["adjustment_total"] == Decimal("0.00")
-    assert s["investment_total"] == Decimal("40.45")   # listed sum (Bhanu +0.95)
+        g = ground_settlement()
+    assert g["closing_matches_lease"] is True
+    assert g["split_matches_lease"] is True
+    # paid side balances by construction
+    assert sum(r["paid"] for r in g["ex_rows"]) == g["paid_total"]
+    assert sum(r["paid"] for r in g["partner_rows"]) == g["paid_total"]
 
 
-def test_pending_is_investment_minus_received(app):
-    from finance import investment_summary
+def test_partner_split_is_lease_times_equity(app):
+    from finance import ground_settlement
     with app.app_context():
-        by = {r["name"]: r for r in investment_summary()["rows"]}
-    assert by["Kishore"]["pending"] == Decimal("1.90")
-    assert by["Naresh Jain"]["pending"] == Decimal("7.90")
-    assert by["Bhanu K"]["pending"] == Decimal("3.85")
-    assert by["Nagaraju"]["pending"] == Decimal("4.00")
-    assert by["Sridhar Reddy"]["pending"] == Decimal("0.95")
-    assert by["Wowinsite LLP"]["pending"] == Decimal("3.95")
+        g = ground_settlement()
+    by = {r["name"]: r for r in g["partner_rows"]}
+    assert by["Vara Prasad"]["split"] == Decimal("790000.00")   # 20% of 3.95M
+    assert by["Bhanu"]["split"] == Decimal("395000.00")          # 10%
 
 
-def test_reconciliation_gap_is_flagged(app):
-    """Listed 40.45 vs stated 39.50 differ by 0.95 (adjustments net to zero)."""
-    from finance import investment_summary
+def test_paid_amounts_match_the_spreadsheet(app):
+    from finance import ground_settlement
     with app.app_context():
-        s = investment_summary()
-    assert s["shareholding_ok"] is True
-    assert s["adjustment_balanced"] is True
-    assert s["reconcile_gap"] == Decimal("0.95")
-    assert s["investment_matches_stated"] is False
-    assert s["tally_ok"] is False
+        g = ground_settlement()
+    byp = {r["name"]: r for r in g["partner_rows"]}
+    assert byp["Raghavender Hariharan"]["paid"] == Decimal("790000.00")
+    assert byp["Raghavender Hariharan"]["remaining"] == Decimal("0.00")
+    assert byp["Aravind"]["paid"] == Decimal("500000.00")
+    bye = {r["name"]: r for r in g["ex_rows"]}
+    assert bye["Bhamandlapally Kishore"]["paid"] == Decimal("600000.00")
+    assert bye["Nethula Nirosha / Nagaraju"]["paid"] == Decimal("390000.00")
+    assert bye["Kallem Sridhar Reddy"]["remaining"] == Decimal("0.00")
+
+
+def test_a_new_payment_updates_both_sides(app):
+    """Recording a payment raises the seller's paid and the payer's paid together."""
+    from finance import ground_settlement
+    from models import ExPartner, Partner
+    client = admin(app)
+    with app.app_context():
+        ex = ExPartner.query.filter_by(name="Naresh Kumar Jain").first()
+        payer = Partner.query.filter_by(name="Vara Prasad").first()
+        ex_id, payer_id = ex.id, payer.id
+    page = client.get("/ground").get_data(as_text=True)
+    client.post("/ground/payment/new", data={
+        "csrf_token": _csrf(page), "detail": "Partner Payment - 6",
+        "ex_partner_id": ex_id, "partner_id": payer_id,
+        "txn_number": "TESTUTR", "txn_date": "2026-10-20", "amount": "100000",
+        "next": "/ground"}, follow_redirects=True)
+    with app.app_context():
+        g = ground_settlement()
+    byp = {r["name"]: r for r in g["partner_rows"]}
+    bye = {r["name"]: r for r in g["ex_rows"]}
+    assert byp["Vara Prasad"]["paid"] == Decimal("100000.00")
+    assert bye["Naresh Kumar Jain"]["paid"] == Decimal("100000.00")
+    assert g["paid_total"] == Decimal("1890000.00")
+    # still tallies
+    assert sum(r["paid"] for r in g["ex_rows"]) == sum(r["paid"] for r in g["partner_rows"])
 
 
 # ------------------------------- editing ----------------------------------- #
 
-def test_edit_a_row_updates_pending_and_totals(app):
-    from finance import investment_summary
-    from models import GroundInvestor
+def test_save_lease_and_closing_amounts(app):
+    from finance import ground_settlement
+    from models import ExPartner
     client = admin(app)
     with app.app_context():
-        rows = GroundInvestor.query.order_by(GroundInvestor.sort_order).all()
+        rows = ExPartner.query.order_by(ExPartner.sort_order).all()
+        ids = [e.id for e in rows]
     page = client.get("/ground").get_data(as_text=True)
-    data = {"csrf_token": _csrf(page), "next": "/ground", "stated_total": "39.5"}
-    for g in rows:
-        data[f"name_{g.id}"] = g.name
-        data[f"share_{g.id}"] = str(g.shareholding)
-        data[f"invest_{g.id}"] = str(g.investment_amount)
-        data[f"received_{g.id}"] = str(g.amount_received)
-        data[f"adjust_{g.id}"] = str(g.adjustment)
-        data[f"details_{g.id}"] = g.payment_details
-        data[f"notes_{g.id}"] = g.status_notes
-    # Naresh Jain pays in 7.9 (fully received)
-    naresh = next(g for g in rows if g.name == "Naresh Jain")
-    data[f"received_{naresh.id}"] = "7.9"
-    client.post("/ground/save", data=data, follow_redirects=True)
+    data = {"csrf_token": _csrf(page), "next": "/ground", "lease_value": "4,000,000"}
+    for e in rows:
+        data[f"sname_{e.id}"] = e.name
+        data[f"closing_{e.id}"] = str(int(e.closing_amount))
+        data[f"account_{e.id}"] = e.account_number
+    # bump the first seller's closing amount by 50,000 to keep the total at 4.0M
+    data[f"closing_{ids[0]}"] = str(int(rows[0].closing_amount) + 50000)
+    client.post("/ground/sellers/save", data=data, follow_redirects=True)
     with app.app_context():
-        s = investment_summary()
-        by = {r["name"]: r for r in s["rows"]}
-    assert by["Naresh Jain"]["pending"] == Decimal("0.00")
-    assert s["received_total"] == Decimal("25.80")   # 17.9 + 7.9
-    assert s["pending_total"] == Decimal("14.65")
+        g = ground_settlement()
+    assert g["lease"] == Decimal("4000000.00")
+    assert g["closing_total"] == Decimal("4000000.00")
+    assert g["closing_matches_lease"] is True
 
 
-def test_save_in_lakh_supports_decimals_and_negatives(app):
-    from finance import investment_summary
-    from models import GroundInvestor
+def test_save_rejects_bad_lease(app):
+    from finance import ground_settlement
+    from models import ExPartner
     client = admin(app)
     with app.app_context():
-        rows = GroundInvestor.query.order_by(GroundInvestor.sort_order).all()
-        sridhar = next(g for g in rows if g.name == "Sridhar Reddy").id
+        rows = ExPartner.query.all()
     page = client.get("/ground").get_data(as_text=True)
-    data = {"csrf_token": _csrf(page), "next": "/ground", "stated_total": "39.5"}
-    for g in rows:
-        data[f"name_{g.id}"] = g.name; data[f"share_{g.id}"] = str(g.shareholding)
-        data[f"invest_{g.id}"] = str(g.investment_amount); data[f"received_{g.id}"] = str(g.amount_received)
-        data[f"adjust_{g.id}"] = str(g.adjustment)
-    data[f"adjust_{sridhar}"] = "-1.25"   # negative adjustment accepted
-    client.post("/ground/save", data=data, follow_redirects=True)
+    data = {"csrf_token": _csrf(page), "next": "/ground", "lease_value": "abc"}
+    for e in rows:
+        data[f"sname_{e.id}"] = e.name; data[f"closing_{e.id}"] = str(int(e.closing_amount))
+    body = client.post("/ground/sellers/save", data=data, follow_redirects=True).get_data(as_text=True)
+    assert "Lease value must be a number" in body
     with app.app_context():
-        from models import GroundInvestor as G, db
-        assert db.session.get(G, sridhar).adjustment == Decimal("-1.25")
+        assert ground_settlement()["lease"] == Decimal("3950000.00")   # unchanged
 
 
-def test_add_and_remove_investor(app):
-    from models import GroundInvestor
+def test_payment_edit_and_delete(app):
+    from finance import ground_settlement
+    from models import GroundPayment, db
     client = admin(app)
-    page = client.get("/ground").get_data(as_text=True)
-    client.post("/ground/investor/new",
-                data={"csrf_token": _csrf(page), "name": "New Investor", "next": "/ground"},
-                follow_redirects=True)
     with app.app_context():
-        g = GroundInvestor.query.filter_by(name="New Investor").first()
-        assert g is not None
-        gid = g.id
+        p = GroundPayment.query.order_by(GroundPayment.id).first()
+        pid, ex_id, partner_id = p.id, p.ex_partner_id, p.partner_id
     page = client.get("/ground").get_data(as_text=True)
-    client.post(f"/ground/investor/{gid}/delete",
+    client.post(f"/ground/payment/{pid}/edit", data={
+        "csrf_token": _csrf(page), "detail": "Token Advance (revised)",
+        "ex_partner_id": ex_id, "partner_id": partner_id,
+        "txn_number": "X", "txn_date": "2026-09-09", "amount": "150000",
+        "next": "/ground"}, follow_redirects=True)
+    with app.app_context():
+        assert db.session.get(GroundPayment, pid).amount == Decimal("150000.00")
+    page = client.get("/ground").get_data(as_text=True)
+    client.post(f"/ground/payment/{pid}/delete",
                 data={"csrf_token": _csrf(page), "next": "/ground"}, follow_redirects=True)
     with app.app_context():
-        from models import GroundInvestor as G, db
-        assert db.session.get(G, gid) is None
+        assert db.session.get(GroundPayment, pid) is None
+        assert ground_settlement()["paid_total"] == Decimal("1690000.00")  # 1.79M - 100k token
 
 
-def test_duplicate_investor_rejected(app):
-    from models import GroundInvestor
+def test_payment_requires_both_sides(app):
+    from models import GroundPayment
     client = admin(app)
     page = client.get("/ground").get_data(as_text=True)
-    body = client.post("/ground/investor/new",
-                       data={"csrf_token": _csrf(page), "name": "Kishore", "next": "/ground"},
-                       follow_redirects=True).get_data(as_text=True)
-    assert "already exists" in body
+    for bad in ({"detail": "X", "partner_id": "1", "amount": "5"},          # no ex
+                {"detail": "X", "ex_partner_id": "1", "amount": "5"},        # no payer
+                {"ex_partner_id": "1", "partner_id": "1", "amount": "5"}):   # no detail
+        page = client.get("/ground").get_data(as_text=True)
+        client.post("/ground/payment/new",
+                    data=dict(bad, csrf_token=_csrf(page), next="/ground"), follow_redirects=True)
     with app.app_context():
-        assert GroundInvestor.query.filter_by(name="Kishore").count() == 1
-
-
-def test_bad_shareholding_rejected(app):
-    from finance import investment_summary
-    from models import GroundInvestor
-    client = admin(app)
-    with app.app_context():
-        rows = GroundInvestor.query.all()
-        first = rows[0].id
-    page = client.get("/ground").get_data(as_text=True)
-    data = {"csrf_token": _csrf(page), "next": "/ground", "stated_total": "39.5"}
-    for g in rows:
-        data[f"name_{g.id}"] = g.name; data[f"share_{g.id}"] = str(g.shareholding)
-        data[f"invest_{g.id}"] = str(g.investment_amount); data[f"received_{g.id}"] = str(g.amount_received)
-        data[f"adjust_{g.id}"] = str(g.adjustment)
-    data[f"share_{first}"] = "150"
-    body = client.post("/ground/save", data=data, follow_redirects=True).get_data(as_text=True)
-    assert "between 0 and 100" in body
+        assert GroundPayment.query.count() == 6   # nothing added
 
 
 # ---------------------------- admin-only access ---------------------------- #
 
-def test_tab_is_admin_only(app):
+def test_ground_tab_is_admin_only(app):
     assert partner(app).get("/ground").status_code == 403
     assert admin(app).get("/ground").status_code == 200
 
 
-def test_partner_cannot_write(app):
+def test_partner_cannot_write_ground(app):
+    from models import GroundPayment, ExPartner
     client = partner(app)
     page = client.get("/").get_data(as_text=True)
-    assert client.post("/ground/save", data={"csrf_token": _csrf(page), "next": "/ground",
-                                             "stated_total": "1"}).status_code == 403
-    assert client.post("/ground/investor/new", data={"csrf_token": _csrf(page), "name": "X",
-                                                     "next": "/ground"}).status_code == 403
+    with app.app_context():
+        ids = [e.id for e in ExPartner.query.all()]
+    assert client.post("/ground/payment/new", data={
+        "csrf_token": _csrf(page), "detail": "hack", "ex_partner_id": ids[0],
+        "partner_id": "1", "amount": "1", "next": "/ground"}).status_code == 403
+    assert client.post("/ground/sellers/save", data={"csrf_token": _csrf(page), "next": "/ground",
+                                             "lease_value": "1"}).status_code == 403
 
 
 def test_nav_link_admin_only(app):
@@ -218,42 +226,177 @@ def test_nav_link_admin_only(app):
     assert "/ground" not in partner(app).get("/").get_data(as_text=True)
 
 
-def test_page_renders_the_summary(app):
+def test_page_shows_the_ledger(app):
     body = admin(app).get("/ground").get_data(as_text=True)
-    assert "Investment Summary" in body
-    assert "Kishore" in body and "Wowinsite LLP" in body
-    assert "39.5" in body            # stated total in lakh
-    assert "Needs reconciliation" in body
-    assert "require reconciliation" in body
+    assert "Ground Payment Ledger" in body
+    assert "Everything tallies" in body
+    assert "Bhamandlapally Kishore" in body and "Vara Prasad" in body
+    assert "39,50,000" in body            # lease value, Indian grouping
 
 
 # --------------------------------- backup ---------------------------------- #
 
-def test_backup_includes_ground_investors(app):
+def test_backup_includes_ground(app):
     data = json.loads(admin(app).get("/admin/backup.json").get_data(as_text=True))
-    assert data["format"] >= 5
-    assert data["summary"]["ground_investors"] == 6
-    g = {r["name"]: r for r in data["ground_investors"]}
-    assert g["Bhanu K"]["investment_amount"] == "8.85"
-    assert g["Sridhar Reddy"]["adjustment"] == "-0.95"
+    assert data["format"] >= 4
+    assert data["summary"]["ex_partners"] == 6
+    assert data["summary"]["ground_payments"] == 6
+    gp = data["ground_payments"][0]
+    assert gp["paid_to"] and gp["paid_by"]   # linked by name
 
 
 def test_backup_round_trip_preserves_ground(app):
     from backup import build_backup, restore_backup
-    from finance import investment_summary
+    from finance import ground_settlement
     with app.app_context():
         before = build_backup()
         restore_backup(before)
         after = build_backup()
-        assert after["ground_investors"] == before["ground_investors"]
-        assert investment_summary()["pending_total"] == Decimal("22.55")
+        assert after["ex_partners"] == before["ex_partners"]
+        assert after["ground_payments"] == before["ground_payments"]
+        assert ground_settlement()["paid_total"] == Decimal("1790000.00")
 
 
-def test_old_backup_without_ground_restores(app):
+def test_old_backup_without_ground_still_restores(app):
     from backup import restore_backup
-    from models import GroundInvestor
-    legacy = {"format": 3, "partners": [], "transactions": [], "settings": {}}
+    from models import ExPartner
+    legacy = {
+        "format": 3,
+        "partners": [{"name": "P", "equity_pct": "100", "sort_order": 0, "is_active": True}],
+        "transactions": [], "settings": {"opening_balance": "0"},
+    }
     with app.app_context():
         counts = restore_backup(legacy)
-        assert counts["ground_investors"] == 0
-        assert GroundInvestor.query.count() == 0
+        assert counts["ex_partners"] == 0
+        assert ExPartner.query.count() == 0
+
+
+# ------------------------------- share % ----------------------------------- #
+
+def test_sellers_seeded_with_share_pct(app):
+    from finance import ground_settlement
+    with app.app_context():
+        g = ground_settlement()
+    shares = {r["name"]: r["share"] for r in g["ex_rows"]}
+    assert shares["Bhamandlapally Kishore"] == Decimal("20")
+    assert shares["Kallem Sridhar Reddy"] == Decimal("10")
+    assert shares["Santosh Gadre"] == Decimal("10")
+    assert g["share_total"] == Decimal("100.00")
+    assert g["shares_balanced"] is True
+
+
+def test_summary_tiles_roll_up_from_the_ledger(app):
+    """The top tiles must equal the ledger's own totals."""
+    from finance import ground_settlement
+    client = admin(app)
+    body = client.get("/ground").get_data(as_text=True)
+    with app.app_context():
+        g = ground_settlement()
+    assert g["tally_ok"] is True
+    assert "39,50,000" in body                 # lease value
+    assert "17,90,000" in body                 # paid to date = sum of payments
+    assert "21,60,000" in body                 # remaining = lease - paid
+    assert "Investment Summary" not in body    # the old table is gone
+
+
+def _seller_form(app, client, overrides=None):
+    from models import ExPartner
+    with app.app_context():
+        rows = ExPartner.query.order_by(ExPartner.sort_order).all()
+        page = client.get("/ground").get_data(as_text=True)
+        data = {"csrf_token": _csrf(page), "next": "/ground", "lease_value": "3950000"}
+        for e in rows:
+            data[f"sname_{e.id}"] = e.name
+            data[f"share_{e.id}"] = str(e.share_pct)
+            data[f"closing_{e.id}"] = str(int(e.closing_amount))
+            data[f"account_{e.id}"] = e.account_number
+        ids = [e.id for e in rows]
+    for key, value in (overrides or {}).items():
+        data[key.format(*ids)] = value
+    return data
+
+
+def test_share_pct_is_saved(app):
+    from finance import ground_settlement
+    client = admin(app)
+    data = _seller_form(app, client, {"share_{0}": "25", "share_{1}": "15"})
+    client.post("/ground/sellers/save", data=data, follow_redirects=True)
+    with app.app_context():
+        g = ground_settlement()
+    assert g["ex_rows"][0]["share"] == Decimal("25")
+    assert g["ex_rows"][1]["share"] == Decimal("15")
+    assert g["share_total"] == Decimal("100.00")   # 25+15+20+20+10+10
+
+
+def test_unbalanced_shares_flag_the_tally(app):
+    from finance import ground_settlement
+    client = admin(app)
+    data = _seller_form(app, client, {"share_{0}": "30"})          # 110% total
+    body = client.post("/ground/sellers/save", data=data,
+                       follow_redirects=True).get_data(as_text=True)
+    with app.app_context():
+        g = ground_settlement()
+    assert g["shares_balanced"] is False
+    assert g["tally_ok"] is False
+    assert "110.00%" in body and "not 100%" in body
+
+
+def test_invalid_share_pct_is_rejected(app):
+    from finance import ground_settlement
+    client = admin(app)
+    data = _seller_form(app, client, {"share_{0}": "150"})
+    body = client.post("/ground/sellers/save", data=data,
+                       follow_redirects=True).get_data(as_text=True)
+    assert "between 0 and 100" in body
+    with app.app_context():
+        assert ground_settlement()["ex_rows"][0]["share"] == Decimal("20")   # unchanged
+
+
+def test_backup_carries_share_pct(app):
+    data = json.loads(admin(app).get("/admin/backup.json").get_data(as_text=True))
+    assert data["format"] >= 7
+    assert "ground_investors" not in data
+    shares = {e["name"]: e["share_pct"] for e in data["ex_partners"]}
+    assert shares["Bhamandlapally Kishore"] == "20.000"
+    from backup import build_backup, restore_backup
+    with app.app_context():
+        before = build_backup()
+        restore_backup(before)
+        assert build_backup()["ex_partners"] == before["ex_partners"]
+
+
+def test_share_pct_column_added_to_an_existing_table(tmp_path, monkeypatch):
+    """A database from before this change gains ex_partners.share_pct on boot."""
+    import sqlite3
+    dbfile = tmp_path / "old.db"
+    con = sqlite3.connect(dbfile)
+    con.executescript(
+        "CREATE TABLE ex_partners (id INTEGER PRIMARY KEY, name VARCHAR(120) NOT NULL UNIQUE,"
+        " closing_amount NUMERIC(12,2) NOT NULL, account_number VARCHAR(255) NOT NULL DEFAULT '',"
+        " sort_order INTEGER NOT NULL DEFAULT 0);"
+        "INSERT INTO ex_partners (name, closing_amount) VALUES ('Old Seller', 100000);"
+    )
+    con.commit(); con.close()
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{dbfile}")
+    for module in ("config", "models", "finance", "exporter", "backup", "app"):
+        sys.modules.pop(module, None)
+    import app  # noqa: F401 - bootstrap runs the migration
+    cols = [r[1] for r in sqlite3.connect(dbfile).execute("PRAGMA table_info(ex_partners)")]
+    assert "share_pct" in cols
+    assert sqlite3.connect(dbfile).execute("SELECT COUNT(*) FROM ex_partners").fetchone()[0] == 1
+
+
+def test_old_backup_with_investment_summary_still_restores(app):
+    """Format-6 backups carried ground_investors; they must restore cleanly."""
+    from backup import restore_backup
+    from models import ExPartner
+    legacy = {
+        "format": 6, "partners": [], "transactions": [], "settings": {},
+        "ground_investors": [{"name": "X", "shareholding": "20", "investment_amount": "7.9"}],
+        "ex_partners": [{"name": "Seller A", "closing_amount": "100000.00", "sort_order": 0}],
+        "ground_payments": [],
+    }
+    with app.app_context():
+        restore_backup(legacy)
+        ex = ExPartner.query.one()
+        assert ex.name == "Seller A" and ex.share_pct == Decimal("0")
