@@ -44,6 +44,10 @@ EXPENSE_CATEGORIES = [
 
 SLOTS = ["7:00 AM", "10:45 AM", "2:30 PM", "6:00 PM", "All slots", "Morning", "Evening", "Other"]
 
+# Bookable ground slots for the calendar. FULL_DAY blocks the whole day.
+FULL_DAY = "Full Day"
+BOOKING_SLOTS = ["7:00 AM", "10:45 AM", "2:30 PM"]
+
 
 def _utcnow():
     return datetime.now(timezone.utc)
@@ -198,3 +202,26 @@ class GroundPayment(db.Model):
 
     def __repr__(self):  # pragma: no cover - debugging aid
         return f"<GroundPayment {self.detail} {self.amount}>"
+
+
+class GroundBooking(db.Model):
+    """A blocked slot (or the full day) on the ground calendar."""
+
+    __tablename__ = "ground_bookings"
+
+    id = db.Column(db.Integer, primary_key=True)
+    booking_date = db.Column(db.Date, nullable=False, index=True)
+    # One of BOOKING_SLOTS, or FULL_DAY.
+    slot = db.Column(db.String(40), nullable=False)
+    booked_by = db.Column(db.String(120), nullable=False, default="")
+    note = db.Column(db.String(255), nullable=False, default="")
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=_utcnow)
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow)
+
+    __table_args__ = (
+        # The same slot can't be blocked twice on one day.
+        db.UniqueConstraint("booking_date", "slot", name="uq_ground_bookings_date_slot"),
+    )
+
+    def __repr__(self):  # pragma: no cover - debugging aid
+        return f"<GroundBooking {self.booking_date} {self.slot}>"

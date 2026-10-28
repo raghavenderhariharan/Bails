@@ -8,10 +8,10 @@ backend. Money is emitted as strings so no precision is lost.
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from models import ExPartner, GroundPayment, Partner, Setting, Transaction, Watchman, db
+from models import ExPartner, GroundBooking, GroundPayment, Partner, Setting, Transaction, Watchman, db
 
 # Bump only if the shape below changes in a way a restore must branch on.
-BACKUP_FORMAT = 7
+BACKUP_FORMAT = 8
 
 
 def _iso(value):
@@ -25,6 +25,7 @@ def build_backup(generated_at=None) -> dict:
     settings = Setting.query.order_by(Setting.key).all()
     watchmen = Watchman.query.order_by(Watchman.sort_order, Watchman.id).all()
     ex_partners = ExPartner.query.order_by(ExPartner.sort_order, ExPartner.id).all()
+    bookings = GroundBooking.query.order_by(GroundBooking.booking_date, GroundBooking.slot).all()
     ground_payments = GroundPayment.query.order_by(GroundPayment.txn_date, GroundPayment.id).all()
     # Names are the stable keys that survive a restore (ids are reassigned).
     watchman_name = {w.id: w.name for w in watchmen}
@@ -48,6 +49,7 @@ def build_backup(generated_at=None) -> dict:
             "watchmen": len(watchmen),
             "watchman_tagged": sum(1 for t in transactions if t.watchman_id),
             "ex_partners": len(ex_partners),
+            "ground_bookings": len(bookings),
             "ground_payments": len(ground_payments),
         },
         "settings": {s.key: s.value for s in settings},
@@ -84,6 +86,15 @@ def build_backup(generated_at=None) -> dict:
                 "is_active": bool(w.is_active),
             }
             for w in watchmen
+        ],
+        "ground_bookings": [
+            {
+                "booking_date": _iso(b.booking_date),
+                "slot": b.slot,
+                "booked_by": b.booked_by,
+                "note": b.note,
+            }
+            for b in bookings
         ],
         "ex_partners": [
             {
@@ -133,6 +144,7 @@ def restore_backup(data: dict) -> dict:
             f"understands ({BACKUP_FORMAT}). Update the app first."
         )
 
+    GroundBooking.query.delete()
     GroundPayment.query.delete()
     ExPartner.query.delete()
     Watchman.query.delete()
@@ -224,6 +236,22 @@ def restore_backup(data: dict) -> dict:
             note=str(gp.get("note", ""))[:255],
         ))
 
+    seen_bookings = set()
+    for b in data.get("ground_bookings") or []:
+        try:
+            when = date.fromisoformat(b["booking_date"])
+        except (KeyError, ValueError):
+            continue
+        key = (when, str(b.get("slot", ""))[:40])
+        if not key[1] or key in seen_bookings:
+            continue
+        seen_bookings.add(key)
+        db.session.add(GroundBooking(
+            booking_date=when, slot=key[1],
+            booked_by=str(b.get("booked_by", ""))[:120],
+            note=str(b.get("note", ""))[:255],
+        ))
+
     db.session.commit()
     return {
         "partners": len(data.get("partners") or []),
@@ -233,4 +261,5 @@ def restore_backup(data: dict) -> dict:
         "watchman_tagged": sum(1 for t in (data.get("transactions") or []) if t.get("watchman")),
         "ex_partners": len(data.get("ex_partners") or []),
         "ground_payments": len(data.get("ground_payments") or []),
+        "ground_bookings": len(data.get("ground_bookings") or []),
     }

@@ -604,3 +604,64 @@ dialog.modal::backdrop { background: rgba(5, 12, 8, .55); backdrop-filter: blur(
   body { background: #fff; }
   .card { box-shadow: none; border-color: #ccc; }
 }
+
+/* ============================== Calendar ================================ */
+
+.cal-toolbar { gap: .5rem; }
+.cal-title { min-width: 9.5rem; text-align: center; }
+.cal-sw { border: 1px solid var(--line-strong); }
+.cal-sw--free    { background: var(--surface); }
+.cal-sw--partial { background: color-mix(in srgb, #B06E00 22%, var(--surface)); }
+.cal-sw--full    { background: color-mix(in srgb, var(--debit) 30%, var(--surface)); }
+
+.cal {
+  display: grid; grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+.cal__dow {
+  font-size: .72rem; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--ink-muted); text-align: center; padding: .2rem 0;
+}
+.cal__day {
+  min-height: 96px; padding: .4rem .45rem;
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: var(--surface);
+  display: flex; flex-direction: column; gap: 3px;
+  overflow: hidden;
+}
+.cal__day[data-open-block] { cursor: pointer; }
+.cal__day[data-open-block]:hover { border-color: var(--brand-green); background: color-mix(in srgb, var(--brand-green) 6%, var(--surface)); }
+.cal__day--partial { background: color-mix(in srgb, #B06E00 9%, var(--surface)); border-color: color-mix(in srgb, #B06E00 35%, var(--line)); }
+.cal__day--full    { background: color-mix(in srgb, var(--debit) 11%, var(--surface)); border-color: color-mix(in srgb, var(--debit) 40%, var(--line)); }
+.cal__day--out { opacity: .45; }
+.cal__day--today .cal__num {
+  background: var(--brand-green-dark); color: #fff; border-radius: 999px;
+  width: 1.6rem; height: 1.6rem; display: grid; place-items: center;
+}
+.cal__num { font-size: .85rem; font-weight: 700; color: var(--ink-2); }
+.cal__chip {
+  font-size: .7rem; font-weight: 650; line-height: 1.25;
+  padding: .12rem .35rem; border-radius: 5px;
+  background: color-mix(in srgb, #B06E00 18%, var(--surface)); color: var(--ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cal__chip--full { background: var(--debit); color: #fff; }
+.cal__who { font-weight: 500; opacity: .85; }
+
+.slot-picks { display: flex; flex-wrap: wrap; gap: .5rem; }
+.slot-pick {
+  display: inline-flex; align-items: center; gap: .4rem;
+  padding: .45rem .7rem; border: 1.5px solid var(--line-strong); border-radius: var(--radius-sm);
+  font-size: .88rem; font-weight: 600; cursor: pointer; color: var(--ink-2);
+}
+.slot-pick input { width: auto; margin: 0; }
+.slot-pick:has(input:checked) { border-color: var(--brand-green-dark); background: color-mix(in srgb, var(--brand-green) 12%, var(--surface)); color: var(--ink); }
+.slot-pick--full:has(input:checked) { border-color: var(--debit); background: color-mix(in srgb, var(--debit) 12%, var(--surface)); }
+.slot-pick:has(input:disabled) { opacity: .45; cursor: not-allowed; text-decoration: line-through; }
+
+@media (max-width: 640px) {
+  .cal { gap: 3px; }
+  .cal__day { min-height: 64px; padding: .25rem; }
+  .cal__chip { font-size: .6rem; padding: .05rem .2rem; }
+  .cal__who { display: none; }
+}

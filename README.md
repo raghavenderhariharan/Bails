@@ -38,6 +38,7 @@ for exactly that on create, edit, delete and the equity form.
 | Tab | What you get |
 |---|---|
 | **Dashboard** | Income, expenses, net profit and closing balance for the selected period; a 12-month income-vs-expense chart starting at your first month of entries; category breakdowns; partner shares; recent entries |
+| **Calendar** | Month view of the ground: which days are blocked for a slot (7:00 AM, 10:45 AM, 2:30 PM) or the full day, and by whom |
 | **Income · Credit** | Every credit entry for the period (oldest first), with category filter, search, subtotal and per-category bars |
 | **Expenses · Debit** | The same for debits |
 | **Partner Profit** | Each partner's share of net profit for the period, plus an editable equity split |
@@ -69,6 +70,12 @@ Other features:
   contributed, and every payment. The summary tiles at the top are rolled up
   from this ledger, and payments are the single source of truth, so both
   sides always tally. Editable inline; totals recompute automatically.
+- **Ground calendar** — Admin clicks a day (or **Block a date**) and ticks
+  one or more slots, or **Full Day**, with an optional "booked by" and note.
+  A slot can't be blocked twice, a full day can't be added on top of slots
+  (or slots on top of a full day), and **Unblock** frees it again. Days are
+  shaded free / some slots blocked / full; partners see the same calendar
+  read-only. Bookings are included in the backup.
 - **Watchmen settlement** — each of the two watchmen has a fixed monthly
   salary (default ₹20,000). Petty cash is recorded as an ordinary **expense**
   on the Expenses tab with the watchman picked in the "Petty cash for watchman"

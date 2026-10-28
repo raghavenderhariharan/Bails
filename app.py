@@ -3,6 +3,7 @@
 A single-operator Flask app: password gate, credit/debit entry, period filters
 and partner profit shares.
 """
+import calendar as _calendar
 import os
 import secrets
 import time
@@ -30,8 +31,8 @@ from finance import (
 )
 from models import (
     EXPENSE, EXPENSE_CATEGORIES, INCOME, INCOME_CATEGORIES, KINDS,
-    ROLE_ADMIN, ROLE_LABELS, ROLE_PARTNER, ROLES, SLOTS,
-    ExPartner, GroundPayment, Partner, Setting, Transaction, Watchman, db,
+    BOOKING_SLOTS, FULL_DAY, ROLE_ADMIN, ROLE_LABELS, ROLE_PARTNER, ROLES, SLOTS,
+    ExPartner, GroundBooking, GroundPayment, Partner, Setting, Transaction, Watchman, db,
 )
 
 csrf = CSRFProtect()
@@ -828,6 +829,130 @@ def _register_routes(app: Flask) -> None:
         db.session.commit()
         flash("Payment deleted.", "success")
         return _safe_redirect(request.form.get("next"), "ground")
+
+    # ---------------- booking calendar ----------------
+
+    def _calendar_month(raw):
+        """Parse ?month=YYYY-MM, defaulting to the current month."""
+        today = date.today()
+        try:
+            year, month = (int(p) for p in (raw or "").split("-"))
+            if 1 <= month <= 12 and 1970 <= year <= 2200:
+                return year, month
+        except (TypeError, ValueError):
+            pass
+        return today.year, today.month
+
+    @app.get("/calendar")
+    @login_required
+    def booking_calendar():
+        year, month = _calendar_month(request.args.get("month"))
+        first = date(year, month, 1)
+        last = date(year, month, _calendar.monthrange(year, month)[1])
+        bookings = (
+            GroundBooking.query
+            .filter(GroundBooking.booking_date >= first, GroundBooking.booking_date <= last)
+            .all()
+        )
+        # Full Day first, then slots in time-of-day order ("2:30 PM" sorts before "7:00 AM" as text).
+        slot_order = {s: i for i, s in enumerate(BOOKING_SLOTS)}
+        bookings.sort(key=lambda b: (b.booking_date, slot_order.get(b.slot, -1)))
+        by_day = {}
+        for b in bookings:
+            by_day.setdefault(b.booking_date, []).append(b)
+
+        weeks = []
+        for week in _calendar.Calendar(firstweekday=0).monthdatescalendar(year, month):
+            row = []
+            for day in week:
+                items = by_day.get(day, [])
+                taken = {b.slot for b in items}
+                if FULL_DAY in taken or set(BOOKING_SLOTS) <= taken:
+                    status = "full"
+                elif items:
+                    status = "partial"
+                else:
+                    status = "free"
+                row.append({
+                    "date": day, "in_month": day.month == month, "today": day == date.today(),
+                    "bookings": items, "status": status,
+                    "free_slots": [] if FULL_DAY in taken else [s for s in BOOKING_SLOTS if s not in taken],
+                })
+            weeks.append(row)
+
+        prev_month = (first - timedelta(days=1)).strftime("%Y-%m")
+        next_month = (last + timedelta(days=1)).strftime("%Y-%m")
+        full_days = sum(1 for w in weeks for d in w if d["in_month"] and d["status"] == "full")
+        blocked_slots = sum(len(BOOKING_SLOTS) if b.slot == FULL_DAY else 1 for b in bookings)
+        return render_template(
+            "calendar.html",
+            weeks=weeks, year=year, month=month,
+            month_label=first.strftime("%B %Y"), month_key=first.strftime("%Y-%m"),
+            prev_month=prev_month, next_month=next_month,
+            this_month=date.today().strftime("%Y-%m"),
+            bookings=bookings, full_days=full_days, blocked_slots=blocked_slots,
+            booking_slots=BOOKING_SLOTS, full_day=FULL_DAY,
+            weekday_names=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+        )
+
+    @app.post("/calendar/block")
+    @admin_required
+    def booking_create():
+        target = request.form.get("next")
+        try:
+            when = _parse_date(request.form.get("booking_date"))
+        except FormError as exc:
+            flash(str(exc), "error")
+            return _safe_redirect(target, "booking_calendar")
+        slots = request.form.getlist("slot")
+        if not slots:
+            flash("Choose at least one slot, or Full Day.", "error")
+            return _safe_redirect(target, "booking_calendar")
+        valid = set(BOOKING_SLOTS) | {FULL_DAY}
+        if any(s not in valid for s in slots):
+            flash("Unknown slot.", "error")
+            return _safe_redirect(target, "booking_calendar")
+        if FULL_DAY in slots:
+            slots = [FULL_DAY]
+
+        existing = {b.slot for b in GroundBooking.query.filter_by(booking_date=when).all()}
+        label = when.strftime("%d %b %Y")
+        if FULL_DAY in existing:
+            flash(f"{label} is already blocked for the full day.", "error")
+            return _safe_redirect(target, "booking_calendar")
+        if slots == [FULL_DAY] and existing:
+            flash(f"{label} already has {', '.join(sorted(existing))} blocked \u2014 "
+                  f"remove those first to block the full day.", "error")
+            return _safe_redirect(target, "booking_calendar")
+        clash = [s for s in slots if s in existing]
+        if clash:
+            flash(f"{', '.join(clash)} on {label} is already blocked.", "error")
+            return _safe_redirect(target, "booking_calendar")
+
+        booked_by = _clip(request.form.get("booked_by"), 120)
+        note = _clip(request.form.get("note"), 255)
+        for s in slots:
+            db.session.add(GroundBooking(booking_date=when, slot=s, booked_by=booked_by, note=note))
+        try:
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            flash("That slot was just blocked by someone else. Please refresh.", "error")
+            return _safe_redirect(target, "booking_calendar")
+        flash(f"Blocked {', '.join(slots)} on {label}.", "success")
+        return _safe_redirect(target, "booking_calendar")
+
+    @app.post("/calendar/<int:booking_id>/delete")
+    @admin_required
+    def booking_delete(booking_id: int):
+        booking = db.session.get(GroundBooking, booking_id)
+        if booking is None:
+            abort(404)
+        label = f"{booking.slot} on {booking.booking_date.strftime('%d %b %Y')}"
+        db.session.delete(booking)
+        db.session.commit()
+        flash(f"Unblocked {label}.", "success")
+        return _safe_redirect(request.form.get("next"), "booking_calendar")
 
     # ---------------- watchmen ----------------
 

@@ -267,3 +267,57 @@
   });
   modal.addEventListener("click", function (event) { if (event.target === modal) close(); });
 })();
+
+/* Ground calendar: open the block dialog for a day, disable taken slots. */
+(function () {
+  "use strict";
+  var modal = document.getElementById("blockModal");
+  var form = document.getElementById("blockForm");
+  if (!modal || !form) return;
+  var read = function (id) {
+    var n = document.getElementById(id);
+    try { return n ? JSON.parse(n.textContent) : []; } catch (e) { return []; }
+  };
+  var dates = read("calBookings"), slots = read("calSlots");
+  var taken = {};
+  dates.forEach(function (d, i) { (taken[d] = taken[d] || []).push(slots[i]); });
+
+  var dateInput = document.getElementById("b-date");
+  var full = form.querySelector("[data-full-day]");
+  var picks = Array.prototype.slice.call(form.querySelectorAll("[data-slot]"));
+  var note = document.getElementById("b-taken");
+
+  function sync() {
+    var t = taken[dateInput.value] || [];
+    var fullTaken = t.indexOf(full.value) >= 0;
+    picks.forEach(function (p) {
+      p.disabled = fullTaken || t.indexOf(p.value) >= 0 || full.checked;
+      if (p.disabled) p.checked = false;
+    });
+    full.disabled = fullTaken || t.length > 0;
+    if (full.disabled) full.checked = false;
+    note.textContent = fullTaken ? "This day is already blocked for the full day."
+      : (t.length ? "Already blocked: " + t.join(", ") + "." : "");
+  }
+
+  function open(day) {
+    form.reset();
+    dateInput.value = day || new Date().toISOString().slice(0, 10);
+    sync();
+    if (modal.showModal) modal.showModal(); else modal.setAttribute("open", "");
+  }
+  function close() { if (modal.close) modal.close(); else modal.removeAttribute("open"); }
+
+  document.addEventListener("click", function (e) {
+    var opener = e.target.closest("[data-open-block]");
+    if (opener) { open(opener.getAttribute("data-date")); return; }
+    if (e.target.closest("[data-close-block]")) close();
+  });
+  document.addEventListener("keydown", function (e) {
+    var cell = e.target.closest && e.target.closest(".cal__day[data-open-block]");
+    if (cell && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); open(cell.getAttribute("data-date")); }
+  });
+  modal.addEventListener("click", function (e) { if (e.target === modal) close(); });
+  dateInput.addEventListener("change", sync);
+  full.addEventListener("change", sync);
+})();

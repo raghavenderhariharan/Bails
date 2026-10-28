@@ -155,7 +155,7 @@ data is in Postgres, so deploys do not touch it.
 
 Signed in as **Admin**, the filter bar has a **Backup** button. It downloads a
 single JSON file containing the entire database — every transaction, the
-partners and their equity, and settings.
+partners and their equity, watchmen, the ground-payment ledger, calendar bookings and settings.
 
 It backs up **whatever database that site is connected to**:
 
