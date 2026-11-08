@@ -17,6 +17,13 @@ _PINNED = {
     "CURRENCY_SYMBOL": "₹",
     "FORCE_HTTPS": "",
     "FLASK_DEBUG": "",
+    # Never let a developer's real mail credentials send anything from a test.
+    "GMAIL_CLIENT_ID": "",
+    "GMAIL_CLIENT_SECRET": "",
+    "GMAIL_REFRESH_TOKEN": "",
+    "SMTP_USER": "",
+    "SMTP_PASSWORD": "",
+    "MAIL_FROM": "",
 }
 
 for _key, _value in _PINNED.items():

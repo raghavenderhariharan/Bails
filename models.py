@@ -62,6 +62,8 @@ class Partner(db.Model):
     equity_pct = db.Column(db.Numeric(6, 3), nullable=False, default=Decimal("0"))
     sort_order = db.Column(db.Integer, nullable=False, default=0)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
+    phone = db.Column(db.String(40), nullable=False, default="")
+    email = db.Column(db.String(255), nullable=False, default="")
 
     def __repr__(self):  # pragma: no cover - debugging aid
         return f"<Partner {self.name} {self.equity_pct}%>"
@@ -225,3 +227,17 @@ class GroundBooking(db.Model):
 
     def __repr__(self):  # pragma: no cover - debugging aid
         return f"<GroundBooking {self.booking_date} {self.slot}>"
+
+
+# Seeded into the mail list the first time the app starts; editable afterwards.
+DEFAULT_MAIL_RECIPIENTS = ["bailscricketground@gmail.com", "medallion76@gmail.com"]
+
+
+class MailRecipient(db.Model):
+    """An address the "Send mail" dialog fills in by default."""
+
+    __tablename__ = "mail_recipients"
+
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(255), nullable=False, unique=True)
+    sort_order = db.Column(db.Integer, nullable=False, default=0)

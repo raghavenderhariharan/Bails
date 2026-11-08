@@ -215,7 +215,7 @@ def test_partner_ui_hides_every_write_control(app):
         assert "data-edit-entry" not in body, f"edit button shown to partner on {path}"
         assert ">Delete<" not in body, f"delete button shown to partner on {path}"
         assert "entryModal" not in body, f"entry dialog markup present on {path}"
-        assert "Save equity split" not in body, f"equity form shown to partner on {path}"
+        assert "Save partners" not in body, f"equity form shown to partner on {path}"
 
 
 def test_partner_sees_a_view_only_badge(app):
@@ -231,7 +231,7 @@ def test_admin_ui_shows_the_write_controls(app):
     income = client.get("/income").get_data(as_text=True)
     assert "data-edit-entry" in income and ">Delete<" in income
     partners = client.get("/partners").get_data(as_text=True)
-    assert "Save equity split" in partners
+    assert "Save partners" in partners
 
 
 def test_admin_can_still_write(app):

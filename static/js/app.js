@@ -321,3 +321,190 @@
   dateInput.addEventListener("change", sync);
   full.addEventListener("change", sync);
 })();
+
+/* Generic dialogs: [data-open-modal="id"] opens, [data-close-modal] closes. */
+(function () {
+  "use strict";
+  function open(m) { if (m.showModal) m.showModal(); else m.setAttribute("open", ""); }
+  function close(m) { if (m.close) m.close(); else m.removeAttribute("open"); }
+  document.addEventListener("click", function (e) {
+    var opener = e.target.closest("[data-open-modal]");
+    if (opener) {
+      var m = document.getElementById(opener.getAttribute("data-open-modal"));
+      if (m) { m.dispatchEvent(new CustomEvent("bails:open")); open(m); }
+      return;
+    }
+    var closer = e.target.closest("[data-close-modal]");
+    if (closer) { var d = closer.closest("dialog"); if (d) close(d); return; }
+    if (e.target.matches && e.target.matches("dialog.modal")) close(e.target);
+  });
+  // A submit button that needs its own confirmation (e.g. Remove inside a bigger form).
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest("[data-confirm-click]");
+    if (b && !window.confirm(b.getAttribute("data-confirm-click"))) e.preventDefault();
+  });
+  window.BailsModal = { open: open, close: close };
+})();
+
+/* Period picker inside the Export / Send-mail dialogs: show only the inputs
+   the chosen period needs, and disable the rest so they are not submitted. */
+(function () {
+  "use strict";
+  function sync(picker) {
+    var checked = picker.querySelector('input[name="period"]:checked');
+    var kind = checked ? checked.value : "month";
+    picker.querySelectorAll("[data-pp-show]").forEach(function (f) {
+      var on = f.getAttribute("data-pp-show").split(" ").indexOf(kind) >= 0;
+      f.hidden = !on;
+      f.querySelectorAll("input,select").forEach(function (i) { i.disabled = !on; });
+    });
+    picker.dispatchEvent(new CustomEvent("bails:period", { bubbles: true }));
+  }
+  document.querySelectorAll("[data-period-picker]").forEach(function (p) {
+    sync(p);
+    p.addEventListener("change", function () { sync(p); });
+  });
+  window.BailsPeriodQuery = function (form) {
+    var q = new URLSearchParams();
+    form.querySelectorAll("[data-period-picker] input, [data-period-picker] select").forEach(function (i) {
+      if (i.disabled || !i.name) return;
+      if (i.type === "radio" && !i.checked) return;
+      q.append(i.name, i.value);
+    });
+    return q;
+  };
+})();
+
+/* Send mail: subject/body are written by the server for the chosen period. */
+(function () {
+  "use strict";
+  var modal = document.getElementById("mailModal");
+  var form = document.getElementById("mailForm");
+  if (!modal || !form) return;
+  var to = document.getElementById("m-to"), subject = document.getElementById("m-subject");
+  var body = document.getElementById("m-body"), attach = document.getElementById("m-attach");
+  var seq = 0;
+
+  function refresh(fillRecipients) {
+    var q = window.BailsPeriodQuery(form), mine = ++seq;
+    attach.textContent = "Preparing…";
+    fetch(form.getAttribute("data-draft-url") + "?" + q.toString(), { credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function (d) {
+        if (mine !== seq) return;
+        subject.value = d.subject; body.value = d.body;
+        attach.textContent = "Attachment: " + d.filename;
+        if (fillRecipients || !to.value.trim()) to.value = (d.recipients || []).join("; ");
+      })
+      .catch(function () { attach.textContent = "Could not prepare the draft — check you are still signed in."; });
+  }
+  modal.addEventListener("bails:open", function () { refresh(true); });
+  form.addEventListener("bails:period", function () { if (modal.open) refresh(false); });
+
+  form.querySelector("[data-mail-gmail]").addEventListener("click", function () {
+    var q = window.BailsPeriodQuery(form);
+    // 1) download the workbook, 2) open a prefilled Gmail draft to attach it to.
+    var a = document.createElement("a");
+    a.href = form.getAttribute("data-export-url") + "?" + q.toString();
+    a.download = ""; document.body.appendChild(a); a.click(); a.remove();
+    var recipients = to.value.split(/[;,\s]+/).filter(Boolean).join(",");
+    var url = "https://mail.google.com/mail/?view=cm&fs=1" +
+      "&to=" + encodeURIComponent(recipients) +
+      "&su=" + encodeURIComponent(subject.value) +
+      "&body=" + encodeURIComponent(body.value);
+    window.open(url, "_blank", "noopener");
+  });
+  form.addEventListener("submit", function () {
+    var btn = form.querySelector('button[type="submit"]');
+    if (btn) { btn.disabled = true; btn.lastChild.textContent = " Sending…"; }
+  });
+})();
+
+/* Dashboard trend card: Graph or Table, one at a time (remembered). */
+(function () {
+  "use strict";
+  document.querySelectorAll("[data-view-toggle]").forEach(function (card) {
+    var key = "bails-view-" + card.getAttribute("data-view-toggle");
+    function show(view) {
+      card.querySelectorAll("[data-view-pane]").forEach(function (p) {
+        p.hidden = p.getAttribute("data-view-pane") !== view;
+      });
+      card.querySelectorAll("[data-view]").forEach(function (b) {
+        b.setAttribute("aria-pressed", b.getAttribute("data-view") === view ? "true" : "false");
+      });
+      try { localStorage.setItem(key, view); } catch (e) {}
+    }
+    var saved = null;
+    try { saved = localStorage.getItem(key); } catch (e) {}
+    show(saved === "table" ? "table" : "graph");
+    card.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-view]");
+      if (b) show(b.getAttribute("data-view"));
+    });
+  });
+})();
+
+/* Calendar: click a booking to move it, re-enter its details, or unblock it. */
+(function () {
+  "use strict";
+  var modal = document.getElementById("bookingModal");
+  var form = document.getElementById("bookingForm");
+  if (!modal || !form) return;
+  var base = form.getAttribute("data-action-base");
+  var unblock = form.querySelector("[data-unblock]");
+  document.addEventListener("click", function (e) {
+    var chip = e.target.closest("[data-edit-booking]");
+    if (!chip) return;
+    e.stopPropagation(); // don't also open the day's "Block a date" dialog
+    var d = chip.dataset;
+    form.setAttribute("action", base + d.id + "/edit");
+    unblock.setAttribute("formaction", base + d.id + "/delete");
+    unblock.setAttribute("data-confirm-click", "Unblock " + d.slot + " on " + d.date + "?");
+    form.querySelector('[name="booking_date"]').value = d.date;
+    form.querySelector('[name="slot"]').value = d.slot;
+    form.querySelector('[name="booked_by"]').value = d.by || "";
+    form.querySelector('[name="note"]').value = d.note || "";
+    window.BailsModal.open(modal);
+  }, true);
+})();
+
+/* Partners grid: live share of the period's net and the equity total. */
+(function () {
+  "use strict";
+  var form = document.getElementById("partnersForm");
+  if (!form) return;
+  var cur = (document.body.getAttribute("data-currency") || "₹");
+  var net = parseFloat(form.getAttribute("data-net")) || 0;
+  var inr = function (v) {
+    var neg = v < 0, s = String(Math.abs(Math.round(v)));
+    if (s.length > 3) {
+      var tail = s.slice(-3), head = s.slice(0, -3), g = [];
+      while (head.length > 2) { g.unshift(head.slice(-2)); head = head.slice(0, -2); }
+      if (head) g.unshift(head);
+      s = g.join(",") + "," + tail;
+    }
+    return (neg ? "-" : "") + cur + s;
+  };
+  function recalc() {
+    var total = 0, shareTotal = 0;
+    form.querySelectorAll("[data-partner-row]").forEach(function (row) {
+      var eq = parseFloat(row.querySelector("[data-equity]").value) || 0;
+      var on = row.querySelector("[data-active]").checked;
+      var share = on ? net * eq / 100 : 0;
+      var cell = row.querySelector("[data-share]");
+      cell.textContent = on ? inr(share) : "—";
+      cell.classList.toggle("v-neg", share < 0);
+      row.classList.toggle("row--muted", !on);
+      if (on) { total += eq; shareTotal += share; }
+    });
+    var t = Math.round(total * 100) / 100;
+    form.querySelector("[data-equity-total]").textContent = t.toFixed(2) + "%";
+    form.querySelector("[data-share-total]").textContent = inr(shareTotal);
+    var note = form.querySelector("[data-equity-note]");
+    note.textContent = t === 100 ? "Balanced" : "Should total 100% (" + (t > 100 ? "+" : "") + (t - 100).toFixed(2) + "%)";
+    note.className = "small " + (t === 100 ? "v-pos" : "v-neg");
+  }
+  form.addEventListener("input", recalc);
+  form.addEventListener("change", recalc);
+  recalc();
+})();

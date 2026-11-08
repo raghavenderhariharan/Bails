@@ -153,8 +153,8 @@ data is in Postgres, so deploys do not touch it.
 
 ## Backing up the database
 
-Signed in as **Admin**, the filter bar has a **Backup** button. It downloads a
-single JSON file containing the entire database — every transaction, the
+Signed in as **Admin**, the filter bar has an **Export / Backup** button. Pick
+**All time** and **Download backup** for a single JSON file containing the entire database — every transaction, the
 partners and their equity, watchmen, the ground-payment ledger, calendar bookings and settings.
 
 It backs up **whatever database that site is connected to**:
@@ -175,7 +175,11 @@ unset DATABASE_URL
 python restore_backup.py bails-ledger-backup-2026-10-06.json
 ```
 
-Restore **replaces all data** in the target database, so it asks you to confirm
+Pick a month, quarter or year instead for a **period backup**: just that
+period's entries and calendar bookings. Restoring a period backup replaces only
+that date range and leaves everything else alone.
+
+A full restore **replaces all data** in the target database, so it asks you to confirm
 first. Because Neon's free tier has no backups of its own, downloading this JSON
 every so often is your safety net.
 
@@ -184,6 +188,55 @@ Backup. It opens a dialog to upload a backup `.json`, makes you type `RESTORE` t
 enable the button, and then replaces everything — the same all-or-nothing restore
 as the CLI, but without leaving the site. Use it to roll a Render/Neon database
 back to a saved backup directly.
+
+## Email ("Send mail")
+
+Admin's **Send mail** button emails the Excel workbook for any month, quarter or
+year. The subject and message are written for the period you pick, the
+addresses are remembered, and you can add or remove addresses in the dialog at
+any time. It starts with `bailscricketground@gmail.com` and `medallion76@gmail.com`.
+
+**Render's free plan blocks outbound SMTP** (ports 25, 465 and 587), so the
+usual "Gmail app password" route does not work there. The site sends through
+the **Gmail API** instead, which uses ordinary HTTPS. One-time setup, about 10
+minutes:
+
+1. Go to <https://console.cloud.google.com>, signed in as the account that
+   should send the mail (e.g. `bailscricketground@gmail.com`). Create a project,
+   e.g. `bails-ledger`.
+2. **APIs & Services → Library** → search **Gmail API** → **Enable**.
+3. **APIs & Services → OAuth consent screen**: User type **External**, app name
+   `Bails Ledger`, your email for the support/developer contacts. Add yourself
+   under **Test users**. Then **Publish app** (set it to *In production*);
+   without that, Google expires the token after 7 days. Google will show an
+   "unverified app" warning when you sign in; that is expected for a private
+   app, so click **Advanced → Go to Bails Ledger**.
+4. **APIs & Services → Credentials → Create credentials → OAuth client ID**,
+   type **Desktop app**. Copy the **client ID** and **client secret**.
+5. On your laptop:
+
+   ```bash
+   cd ~/Documents/BailsLedger && source .venv/bin/activate
+   python gmail_auth.py
+   ```
+
+   Paste the client ID and secret, sign in in the browser that opens, and allow
+   **Send email on your behalf** (it cannot read your inbox). The script prints
+   a refresh token.
+6. Render → your service → **Environment** → add `GMAIL_CLIENT_ID`,
+   `GMAIL_CLIENT_SECRET` and `GMAIL_REFRESH_TOKEN` → **Save** (the service
+   restarts). The **Send** button now works.
+
+Never put these three values in a tracked file: the repo is public. To revoke
+access at any time, use <https://myaccount.google.com/permissions>.
+
+**Without any setup**, the dialog's **Open in Gmail** button still works
+everywhere: it downloads the workbook and opens a Gmail draft with the
+addresses, subject and message filled in. You attach the file and press send.
+
+**Locally (or on a paid Render instance)** you can use SMTP instead: set
+`SMTP_USER` to the Gmail address and `SMTP_PASSWORD` to a Gmail
+[app password](https://myaccount.google.com/apppasswords) in your `.env`.
 
 ## If something goes wrong
 
@@ -197,6 +250,8 @@ back to a saved backup directly.
 | Site loads but has no data | The import in step 4 has not been run against this database. |
 | Local run suddenly hits production | `DATABASE_URL` is still exported in that shell. `unset DATABASE_URL`. |
 | Backup button missing | You are signed in as Partner, not Admin. It is admin-only. |
+| **Send** is greyed out in Send mail | Email is not set up on this server. See **Email** above, or use **Open in Gmail**. |
+| "Gmail refused the request (400/401)" | The refresh token was revoked or expired (an app still in *Testing* expires after 7 days). Publish the consent screen and re-run `gmail_auth.py`. |
 
 Logs: service page → **Logs**. Env vars: **Environment**. Manual redeploy:
 **Manual Deploy** → *Clear build cache & deploy*.

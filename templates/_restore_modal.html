@@ -16,9 +16,10 @@
     <div class="modal__body">
       <div class="banner" style="margin-bottom:1.1rem">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
-        <span>This <strong>replaces everything</strong> in the current database &mdash;
-          all transactions, partners and watchmen &mdash; with the contents of the file.
-          It cannot be undone. Download a fresh backup first if you are unsure.</span>
+        <span>A <strong>full backup</strong> (All time) <strong>replaces everything</strong> in the current
+          database &mdash; all transactions, partners and watchmen &mdash; with the contents of the file.
+          A <strong>period backup</strong> (a month, quarter or year) replaces only that period&rsquo;s
+          entries and calendar bookings. It cannot be undone. Download a fresh backup first if you are unsure.</span>
       </div>
       <div class="form-grid">
         <div class="field span-2">
@@ -34,7 +35,7 @@
 
     <div class="modal__foot">
       <button class="btn btn--ghost" type="button" data-close-restore>Cancel</button>
-      <button class="btn btn--debit" type="submit" id="restoreSubmit" disabled>Replace all data</button>
+      <button class="btn btn--debit" type="submit" id="restoreSubmit" disabled>Restore</button>
     </div>
   </form>
 </dialog>

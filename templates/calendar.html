@@ -7,14 +7,27 @@
     <h1>Ground Calendar</h1>
     <div class="page-head__sub">Blocked slots and full days &mdash; {{ month_label }}</div>
   </div>
+  <span class="topbar__spacer"></span>
+  <div class="page-head__actions">
+    <button class="btn btn--ghost" type="button" data-open-modal="exportModal"
+            title="Download the calendar (with the ledger) as Excel for any month, quarter or year">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+      Export
+    </button>
   {% if is_admin %}
-    <span class="topbar__spacer"></span>
+    <button class="btn btn--ghost" type="button" data-open-modal="mailModal" title="Email the calendar and ledger workbook">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 6l-10 7L2 6"/></svg>
+      Send mail
+    </button>
     <button class="btn btn--primary" type="button" data-open-block data-date="{{ (this_month == month_key) and now_date.isoformat() or (month_key ~ '-01') }}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
       Block a date
     </button>
   {% endif %}
+  </div>
 </div>
+{% include "_export_modal.html" %}
+{% if is_admin %}{% include "_mail_modal.html" %}{% endif %}
 
 <div class="card" style="margin-bottom:1rem">
   <div class="card__head cal-toolbar">
@@ -44,9 +57,19 @@
                aria-label="{{ d.date.strftime('%d %B %Y') }}: {{ 'free' if d.status == 'free' else (d.bookings | length ~ ' blocked') }}">
             <div class="cal__num">{{ d.date.day }}</div>
             {% for b in d.bookings %}
-              <div class="cal__chip {{ 'cal__chip--full' if b.slot == full_day else '' }}" title="{{ b.slot }}{% if b.booked_by %} · {{ b.booked_by }}{% endif %}{% if b.note %} · {{ b.note }}{% endif %}">
-                {{ b.slot }}{% if b.booked_by %}<span class="cal__who"> · {{ b.booked_by }}</span>{% endif %}
-              </div>
+              {% set chip_title = b.slot ~ (' · ' ~ b.booked_by if b.booked_by else '') ~ (' · ' ~ b.note if b.note else '') %}
+              {% if is_admin %}
+                <button type="button" class="cal__chip {{ 'cal__chip--full' if b.slot == full_day else '' }}"
+                        title="{{ chip_title }} — click to edit or unblock"
+                        data-edit-booking data-id="{{ b.id }}" data-date="{{ b.booking_date.isoformat() }}"
+                        data-slot="{{ b.slot }}" data-by="{{ b.booked_by }}" data-note="{{ b.note }}">
+                  {{ b.slot }}{% if b.booked_by %}<span class="cal__who"> · {{ b.booked_by }}</span>{% endif %}
+                </button>
+              {% else %}
+                <div class="cal__chip {{ 'cal__chip--full' if b.slot == full_day else '' }}" title="{{ chip_title }}">
+                  {{ b.slot }}{% if b.booked_by %}<span class="cal__who"> · {{ b.booked_by }}</span>{% endif %}
+                </div>
+              {% endif %}
             {% endfor %}
           </div>
         {% endfor %}
@@ -85,6 +108,9 @@
                 <td class="small">{{ b.note or '—' }}</td>
                 {% if is_admin %}
                   <td class="col-actions">
+                    <button class="btn btn--sm btn--ghost" type="button"
+                            data-edit-booking data-id="{{ b.id }}" data-date="{{ b.booking_date.isoformat() }}"
+                            data-slot="{{ b.slot }}" data-by="{{ b.booked_by }}" data-note="{{ b.note }}">Edit</button>
                     <form method="post" action="{{ url_for('booking_delete', booking_id=b.id) }}" style="display:inline"
                           data-confirm="Unblock {{ b.slot }} on {{ b.booking_date.strftime('%d %b %Y') }}?">
                       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -148,6 +174,50 @@
     <div class="modal__foot">
       <button class="btn btn--ghost" type="button" data-close-block>Cancel</button>
       <button class="btn btn--primary" type="submit">Block</button>
+    </div>
+  </form>
+</dialog>
+<dialog class="modal" id="bookingModal" aria-labelledby="bookingModalTitle">
+  <form method="post" action="" id="bookingForm" data-action-base="/calendar/">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="next" value="{{ request.full_path }}">
+    <div class="modal__head">
+      <h2 id="bookingModalTitle">Edit booking</h2>
+      <span class="spacer"></span>
+      <button class="btn btn--sm btn--ghost btn--icon" type="button" data-close-modal aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true" style="width:18px;height:18px"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="modal__body">
+      <p class="small muted" style="margin:0 0 .9rem">Change the date or slot to move it, or update who booked it.
+        <strong>Unblock</strong> frees the slot so it can be booked again.</p>
+      <div class="form-grid">
+        <div class="field">
+          <label for="k-date">Date</label>
+          <input type="date" id="k-date" name="booking_date" required>
+        </div>
+        <div class="field">
+          <label for="k-slot">Slot</label>
+          <select id="k-slot" name="slot" required>
+            <option value="{{ full_day }}">{{ full_day }}</option>
+            {% for s in booking_slots %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="k-by">Booked by</label>
+          <input type="text" id="k-by" name="booked_by" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="k-note">Note</label>
+          <input type="text" id="k-note" name="note" autocomplete="off">
+        </div>
+      </div>
+    </div>
+    <div class="modal__foot">
+      <button class="btn btn--danger" type="submit" data-unblock style="margin-right:auto"
+              formnovalidate>Unblock</button>
+      <button class="btn btn--ghost" type="button" data-close-modal>Cancel</button>
+      <button class="btn btn--primary" type="submit">Save changes</button>
     </div>
   </form>
 </dialog>

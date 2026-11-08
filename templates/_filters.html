@@ -95,17 +95,17 @@
       {% set _ = custom_args.update({'from': (period.start or period.end or now_date).isoformat()}) %}
       <a class="btn btn--sm btn--ghost" href="{{ url_for(request.endpoint, **custom_args) }}">Custom range</a>
     {% endif %}
-    <a class="btn btn--sm btn--ghost" href="{{ url_for('export_xlsx', **period.query_args()) }}"
-       title="Download an Excel workbook laid out like BailsLedgerBook.xlsx">
+    <button class="btn btn--sm btn--ghost" type="button" data-open-modal="exportModal"
+            title="Download Excel{{ ' or a backup' if is_admin }} for any month, quarter or year">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
-      Export Excel
-    </a>
+      Export{{ ' / Backup' if is_admin }}
+    </button>
     {% if is_admin %}
-      <a class="btn btn--sm btn--ghost" href="{{ url_for('admin_backup') }}"
-         title="Download a full backup of the whole database (all periods) as JSON">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></svg>
-        Backup
-      </a>
+      <button class="btn btn--sm btn--ghost" type="button" data-open-modal="mailModal"
+              title="Email the ledger workbook">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 6l-10 7L2 6"/></svg>
+        Send mail
+      </button>
       <button class="btn btn--sm btn--ghost" type="button" data-open-restore
               title="Replace the whole database from a backup file">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
@@ -125,3 +125,5 @@
     {% endif %}
   </div>
 </section>
+{% include "_export_modal.html" %}
+{% if is_admin %}{% include "_mail_modal.html" %}{% endif %}

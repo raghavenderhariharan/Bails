@@ -21,6 +21,14 @@
 {% endif %}
 
 <div class="grid grid--kpi" style="margin-bottom:1rem">
+  <div class="kpi kpi--open">
+    <div class="kpi__label">Opening balance</div>
+    <div class="kpi__value {{ 'v-neg' if opening < 0 else '' }}">
+      <span class="cur">{{ CURRENCY }}</span>{{ opening | money }}
+    </div>
+    <div class="kpi__meta">{% if period.start %}Brought forward to {{ period.start.strftime('%d %b %Y') }}{% else %}Before the first entry{% endif %}</div>
+  </div>
+
   <div class="kpi kpi--credit">
     <div class="kpi__label">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" style="width:13px;height:13px"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
@@ -54,44 +62,49 @@
     <div class="kpi__value {{ 'v-neg' if closing_balance < 0 else '' }}">
       <span class="cur">{{ CURRENCY }}</span>{{ closing_balance | money }}
     </div>
-    <div class="kpi__meta">All entries up to {{ (period.end or now_date).strftime('%d %b %Y') }}</div>
+    <div class="kpi__meta">Carried forward at {{ (period.end or now_date).strftime('%d %b %Y') }}</div>
   </div>
 </div>
 
-<div class="card" style="margin-bottom:1rem">
+<div class="card" style="margin-bottom:1rem" data-view-toggle="trend">
   <div class="card__head">
     <h2>Income vs expenses &mdash; {{ trend_label }}</h2>
     <span class="spacer"></span>
-    <div class="legend">
+    <div class="legend" data-view-pane="graph">
       <span class="legend__item"><span class="legend__swatch" style="background:var(--credit)"></span>Income</span>
       <span class="legend__item"><span class="legend__swatch" style="background:var(--debit)"></span>Expenses</span>
       <span class="legend__item"><span class="legend__swatch" style="background:var(--chart-net)"></span>Net</span>
     </div>
+    <div class="seg seg--sm" role="group" aria-label="Show as">
+      <button type="button" data-view="graph" aria-pressed="true">Graph</button>
+      <button type="button" data-view="table" aria-pressed="false">Table</button>
+    </div>
   </div>
-  <div class="card__body">
+  <div class="card__body" data-view-pane="graph">
     <div class="chart-wrap" style="height:300px">
       <canvas id="trendChart" height="300"
               role="img"
               aria-label="Grouped bars of monthly income and expenses with a net profit line, covering {{ trend_label }}."></canvas>
     </div>
-    <details style="margin-top:.9rem">
-      <summary class="small muted" style="cursor:pointer">View as table</summary>
-      <div class="table-scroll" style="margin-top:.6rem">
-        <table class="ledger">
-          <thead><tr><th>Month</th><th class="num">Income</th><th class="num">Expenses</th><th class="num">Net</th></tr></thead>
-          <tbody>
-            {% for m in trend %}
-              <tr>
-                <td class="nowrap">{{ m.full_label }}</td>
-                <td class="num">{{ m.income | money }}</td>
-                <td class="num">{{ m.expense | money }}</td>
-                <td class="num {{ 'v-neg' if m.net < 0 else '' }}">{{ m.net | money }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </details>
+  </div>
+  <div class="card__body card__body--flush" data-view-pane="table" hidden>
+    <div class="table-scroll">
+      <table class="ledger">
+        <thead><tr><th>Month</th><th class="num">Opening</th><th class="num">Income</th><th class="num">Expenses</th><th class="num">Net</th><th class="num">Closing</th></tr></thead>
+        <tbody>
+          {% for m in trend %}
+            <tr>
+              <td class="nowrap">{{ m.full_label }}</td>
+              <td class="num muted {{ 'v-neg' if m.opening < 0 else '' }}">{{ m.opening | money }}</td>
+              <td class="num">{{ m.income | money }}</td>
+              <td class="num">{{ m.expense | money }}</td>
+              <td class="num {{ 'v-neg' if m.net < 0 else '' }}">{{ m.net | money }}</td>
+              <td class="num {{ 'v-neg' if m.closing < 0 else '' }}"><strong>{{ m.closing | money }}</strong></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
 </div>
 

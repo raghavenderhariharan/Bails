@@ -226,7 +226,7 @@ a { color: var(--link); }
 .card__body--flush { padding: 0; }
 
 .grid { display: grid; gap: 1rem; }
-.grid--kpi { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+.grid--kpi { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .65rem; }
 /* align-items:start stops a short card stretching to match a tall neighbour. */
 .grid--2 { grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); align-items: start; }
 
@@ -236,10 +236,11 @@ a { color: var(--link); }
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 1rem 1.1rem;
+  padding: .6rem .8rem .65rem .95rem;
   box-shadow: var(--shadow-sm);
   position: relative;
   overflow: hidden;
+  min-width: 0;
 }
 .kpi::before {
   content: ""; position: absolute; inset: 0 auto 0 0; width: 4px;
@@ -249,18 +250,21 @@ a { color: var(--link); }
 .kpi--debit::before  { background: var(--debit); }
 .kpi--net::before    { background: var(--brand-navy); }
 .kpi--bal::before    { background: var(--brand-green); }
+.kpi--open::before   { background: var(--ink-muted); }
 
 .kpi__label {
-  font-size: .72rem; font-weight: 700; letter-spacing: .09em;
+  font-size: .64rem; font-weight: 700; letter-spacing: .08em;
   text-transform: uppercase; color: var(--ink-muted);
-  display: flex; align-items: center; gap: .4rem;
+  display: flex; align-items: center; gap: .35rem;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .kpi__value {
-  font-size: 1.75rem; font-weight: 700; letter-spacing: -.02em;
-  margin-top: .35rem; line-height: 1.15;
+  font-size: 1.22rem; font-weight: 700; letter-spacing: -.01em;
+  margin-top: .2rem; line-height: 1.2;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .kpi__value .cur { font-size: .72em; font-weight: 600; color: var(--ink-2); margin-right: .1em; }
-.kpi__meta { font-size: .78rem; color: var(--ink-2); margin-top: .3rem; }
+.kpi__meta { font-size: .7rem; color: var(--ink-2); margin-top: .15rem; line-height: 1.3; }
 .kpi__value--credit { color: var(--credit); }
 .kpi__value--debit  { color: var(--debit); }
 .v-neg { color: var(--debit); }
@@ -302,7 +306,7 @@ a { color: var(--link); }
 }
 
 input[type="text"], input[type="number"], input[type="date"], input[type="month"],
-input[type="password"], input[type="search"], select, textarea {
+input[type="password"], input[type="search"], input[type="tel"], input[type="email"], select, textarea {
   font: inherit; font-size: .9rem;
   color: var(--ink); background: var(--surface);
   border: 1px solid var(--line-strong);
@@ -317,7 +321,7 @@ input::placeholder, textarea::placeholder { color: var(--ink-muted); }
    so a field is clearly "live" instead of blending into the white card. */
 input[type="text"]:hover, input[type="number"]:hover, input[type="date"]:hover,
 input[type="month"]:hover, input[type="password"]:hover, input[type="search"]:hover,
-select:hover, textarea:hover {
+input[type="tel"]:hover, input[type="email"]:hover, select:hover, textarea:hover {
   border-color: var(--brand-green);
   background: color-mix(in srgb, var(--brand-green) 7%, var(--surface));
 }
@@ -593,7 +597,8 @@ dialog.modal::backdrop { background: rgba(5, 12, 8, .55); backdrop-filter: blur(
 .error-page .code { font-size: 4rem; font-weight: 750; color: var(--brand-green-dark); line-height: 1; }
 
 @media (max-width: 640px) {
-  .kpi__value { font-size: 1.5rem; }
+  .kpi__value { font-size: 1.1rem; }
+  .grid--kpi { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .page-head h1 { font-size: 1.22rem; }
   .brand__logo { width: 40px; height: 40px; }
   .wrap { padding-top: 1rem; }
@@ -665,3 +670,45 @@ dialog.modal::backdrop { background: rgba(5, 12, 8, .55); backdrop-filter: blur(
   .cal__chip { font-size: .6rem; padding: .05rem .2rem; }
   .cal__who { display: none; }
 }
+
+
+/* ======================= Segmented buttons / pickers ===================== */
+
+.seg button, .seg--pick label > span {
+  display: inline-block; padding: .4rem .85rem; border-radius: 999px; border: 0;
+  background: none; font: inherit; font-size: .84rem; font-weight: 650;
+  color: var(--ink-2); white-space: nowrap; cursor: pointer;
+}
+.seg button:hover, .seg--pick label:hover > span { background: var(--surface); color: var(--ink); }
+.seg button[aria-pressed="true"], .seg--pick input:checked + span {
+  background: var(--brand-green-dark); color: #fff; box-shadow: var(--shadow-sm);
+}
+.seg--pick { flex-wrap: wrap; border-radius: 18px; }
+.seg--pick input { position: absolute; opacity: 0; width: 0; height: 0; }
+.seg--pick input:focus-visible + span { outline: 2px solid var(--brand-green); outline-offset: 1px; }
+.seg--sm button { padding: .28rem .7rem; font-size: .78rem; }
+
+.check { display: inline-flex; align-items: center; gap: .4rem; font-weight: 500; cursor: pointer; }
+.check input { width: auto; }
+textarea.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .8rem; line-height: 1.45; }
+dialog.modal.modal--wide { max-width: 760px; }
+@media (max-width: 560px) { .modal__foot { flex-wrap: wrap; } }
+
+/* Partners grid */
+.ledger--edit input { min-width: 0; }
+.ledger--edit td { vertical-align: middle; }
+.row--muted td { opacity: .55; }
+.add-row {
+  display: flex; align-items: flex-end; gap: .6rem; flex-wrap: wrap;
+  margin-top: 1.1rem; padding-top: 1rem; border-top: 1px dashed var(--line);
+}
+.add-row .field { flex: 1 1 200px; }
+
+/* Calendar chips are buttons for Admin */
+button.cal__chip { display: block; width: 100%; text-align: left; border: 0; font: inherit; cursor: pointer; }
+button.cal__chip:hover { filter: brightness(.95); outline: 1px solid var(--line-strong); }
+
+/* `hidden` must win over component display rules (.field, .legend are flex). */
+[hidden] { display: none !important; }
+
+.page-head__actions { display: flex; gap: .5rem; flex-wrap: wrap; margin-left: auto; }

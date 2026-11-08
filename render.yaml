@@ -33,3 +33,12 @@ services:
         sync: false                  # paste your external Postgres connection
                                      # string (e.g. from Neon) in the dashboard.
                                      # postgres:// URLs are normalised in config.py.
+      # "Send mail" (optional). Render's free plan blocks SMTP ports, so mail
+      # goes through the Gmail API over HTTPS. Get the three values with
+      # `python gmail_auth.py` on your laptop -- see DEPLOY.md -> Email.
+      - key: GMAIL_CLIENT_ID
+        sync: false
+      - key: GMAIL_CLIENT_SECRET
+        sync: false
+      - key: GMAIL_REFRESH_TOKEN
+        sync: false

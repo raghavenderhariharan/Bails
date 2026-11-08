@@ -37,18 +37,18 @@ for exactly that on create, edit, delete and the equity form.
 
 | Tab | What you get |
 |---|---|
-| **Dashboard** | Income, expenses, net profit and closing balance for the selected period; a 12-month income-vs-expense chart starting at your first month of entries; category breakdowns; partner shares; recent entries |
-| **Calendar** | Month view of the ground: which days are blocked for a slot (7:00 AM, 10:45 AM, 2:30 PM) or the full day, and by whom |
+| **Dashboard** | Compact tiles for opening balance, income, expenses, net profit and closing balance for the selected period; a 12-month income-vs-expense view you flip between **Graph** and **Table** (the table shows each month's opening and closing balance); recent entries |
+| **Calendar** | Month view of the ground: which days are blocked for a slot (7:00 AM, 10:45 AM, 2:30 PM) or the full day, and by whom; click a booking to move it, edit it or unblock it |
 | **Income · Credit** | Every credit entry for the period (oldest first), with category filter, search, subtotal and per-category bars |
 | **Expenses · Debit** | The same for debits |
-| **Partner Profit** | Each partner's share of net profit for the period, plus an editable equity split |
+| **Partner Profit** | Each partner's share of net profit for the period. Admin edits names, equity %, phone and email, adds or removes partners, and sees the shares recalculate as they type |
 | **Ground Payment** (Admin) | Ground-purchase ledger: summary tiles rolled up from it, sellers' share % and closing amounts vs paid, partners' contributions, and every payment |
 | **Watchmen** | Each watchman's fixed monthly salary, less petty cash (expenses tagged to them), = net payable |
 | **All Transactions** | Credit and debit together, oldest first, with a running balance that builds downwards |
 
-Admin additionally gets the **New entry** dialog, per-row Edit / Delete, and a
-**Backup** button that downloads the whole database as JSON; a partner sees the
-same figures without any of those controls.
+Admin additionally gets the **New entry** dialog, per-row Edit / Delete,
+**Backup** / **Restore**, and **Send mail**; a partner sees the same figures
+without any of those controls.
 
 Other features:
 
@@ -62,7 +62,9 @@ Other features:
 - **Excel export** of whatever period is on screen, laid out like your own
   `BailsLedgerBook.xlsx`: a **Dashboard** sheet (income/expense/net tiles, the
   12-month table, standing commitments), a **Transaction Ledger** sheet with the
-  same twelve columns and a running balance, plus a **Partner Profit** sheet.
+  same twelve columns and a running balance, a **Partner Profit** sheet, and a
+  **Ground Calendar** sheet (a day-by-slot grid of blocked days plus the full
+  booking list). The same workbook is what Send mail attaches and Save to Drive writes.
   Rows read oldest-first, the way a ledger book does.
 - **Ground Payment ledger (Admin only)** — tracks buying the ground from its
   previous owners: each seller's share % and closing amount vs what they have
@@ -70,10 +72,23 @@ Other features:
   contributed, and every payment. The summary tiles at the top are rolled up
   from this ledger, and payments are the single source of truth, so both
   sides always tally. Editable inline; totals recompute automatically.
+- **Export / Backup for any period** — the toolbar's **Export** dialog picks
+  Monthly, Quarterly, Yearly, All time or a custom range, then downloads the
+  Excel workbook (anyone) or a backup (Admin). A period backup holds just that
+  period's entries and calendar bookings, and restoring it replaces only that
+  period; **All time** is a full backup. Filenames carry the period and the
+  download date, e.g. `BailsLedgerBook-2026-Q4-2026-11-08.xlsx`.
+- **Send mail (Admin)** — emails the workbook for the chosen period. Subject and
+  message are written from that period's figures (opening/closing balance,
+  income, expenses, net and each partner's share) and stay editable; the
+  address list is remembered and editable. Uses the Gmail API so it works on
+  Render's free plan (which blocks SMTP); without setup, **Open in Gmail** opens
+  a prefilled draft instead. Setup: DEPLOY.md → *Email*.
 - **Ground calendar** — Admin clicks a day (or **Block a date**) and ticks
   one or more slots, or **Full Day**, with an optional "booked by" and note.
   A slot can't be blocked twice, a full day can't be added on top of slots
-  (or slots on top of a full day), and **Unblock** frees it again. Days are
+  (or slots on top of a full day). Click a booking to change its date, slot,
+  name or note (the same clash rules apply), or **Unblock** it to free the slot. Days are
   shaded free / some slots blocked / full; partners see the same calendar
   read-only. Bookings are included in the backup.
 - **Watchmen settlement** — each of the two watchmen has a fixed monthly
@@ -216,8 +231,10 @@ config.py           Environment-driven configuration
 models.py           Partner, Transaction, Setting, roles + the category lists
 finance.py          Period parsing, aggregation, partner-share maths
 import_excel.py     One-off importer for BailsLedgerBook.xlsx
-exporter.py         Builds the .xlsx export (Dashboard / Ledger / Partner Profit)
+exporter.py         Builds the .xlsx export (Dashboard / Ledger / Partner Profit / Calendar)
 sync_drive.py       CLI: write the export into a Drive (or any) folder
+mailer.py           Send mail: Gmail API (HTTPS) or SMTP transport
+gmail_auth.py       One-time: get the Gmail API refresh token
 templates/          Jinja templates (base, dashboard, tabs, dialog, login)
 static/css/app.css  Design system — brand palette, light/dark, responsive
 static/js/app.js    Entry dialog, theme toggle, delete confirmation

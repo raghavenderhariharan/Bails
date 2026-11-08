@@ -5,7 +5,7 @@ presentation/allocation step, so totals never drift.
 """
 from calendar import monthrange
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
 
@@ -196,6 +196,13 @@ def balance_as_of(day: Optional[date]) -> Decimal:
     return q2(opening_balance() + q2(query.scalar()))
 
 
+def period_opening(period: Period) -> Decimal:
+    """Balance brought forward into a period (the closing balance of the day before)."""
+    if period.start:
+        return balance_as_of(period.start - timedelta(days=1))
+    return opening_balance()
+
+
 def category_breakdown(period: Period, kind: str, limit: int = 8) -> list:
     """Totals per category for one kind, largest first, tail folded into 'Other'."""
     rows = (
@@ -292,6 +299,12 @@ def trend_window(period: "Period", months: int = 12) -> dict:
 
     start_year, start_month = _from_month_index(start_index)
     series = monthly_series(start_year, start_month, months)
+    # Each month opens on the previous month's closing balance.
+    running = balance_as_of(date(start_year, start_month, 1) - timedelta(days=1))
+    for month in series:
+        month["opening"] = running
+        running = q2(running + month["net"])
+        month["closing"] = running
     return {
         "series": series,
         "start_label": series[0]["full_label"],
@@ -500,4 +513,37 @@ def ground_settlement() -> dict:
                      and q2(sum((r["split"] for r in partner_rows), Decimal("0"))) == lease
                      and share_total == Decimal("100.00")
                      and q2(equity_total) == Decimal("100.00")),
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Ground calendar
+# --------------------------------------------------------------------------- #
+
+def booking_summary(start: Optional[date], end: Optional[date]) -> dict:
+    """Calendar bookings in a date range (open ends allowed), in day/slot order,
+    with the counts the calendar page, the export and the email all show."""
+    from models import BOOKING_SLOTS, FULL_DAY, GroundBooking
+
+    query = GroundBooking.query
+    if start:
+        query = query.filter(GroundBooking.booking_date >= start)
+    if end:
+        query = query.filter(GroundBooking.booking_date <= end)
+    # Full Day first, then slots in time-of-day order ("2:30 PM" sorts before "7:00 AM" as text).
+    slot_order = {s: i for i, s in enumerate(BOOKING_SLOTS)}
+    bookings = sorted(query.all(), key=lambda b: (b.booking_date, slot_order.get(b.slot, -1)))
+
+    by_day = {}
+    for b in bookings:
+        by_day.setdefault(b.booking_date, set()).add(b.slot)
+    full = {d for d, taken in by_day.items() if FULL_DAY in taken or set(BOOKING_SLOTS) <= taken}
+    return {
+        "bookings": bookings,
+        "by_day": by_day,
+        "full_days": len(full),
+        "full_day_dates": full,
+        "days_blocked": len(by_day),
+        "blocked_slots": sum(len(BOOKING_SLOTS) if b.slot == FULL_DAY else 1 for b in bookings),
+        "slots_per_day": len(BOOKING_SLOTS),
     }

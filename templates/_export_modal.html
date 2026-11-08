@@ -1,0 +1,35 @@
+{# Export Excel (everyone) and Backup (admin) for any month, quarter or year. #}
+<dialog class="modal" id="exportModal" aria-labelledby="exportModalTitle">
+  <form method="get" action="{{ url_for('export_xlsx') }}" id="exportForm">
+    <div class="modal__head">
+      <h2 id="exportModalTitle">Export{% if is_admin %} &amp; backup{% endif %}</h2>
+      <span class="spacer"></span>
+      <button class="btn btn--sm btn--ghost btn--icon" type="button" data-close-modal aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true" style="width:18px;height:18px"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="modal__body">
+      {% with pp = 'x' %}{% include "_period_picker.html" %}{% endwith %}
+      <p class="small muted" style="margin:.9rem 0 0">
+        <strong>Excel</strong> is laid out like BailsLedgerBook.xlsx for the chosen period, with a
+        <strong>Ground Calendar</strong> sheet of every blocked slot and full day.
+        {% if is_admin %}<br><strong>Backup</strong> for a month, quarter or year holds just that period&rsquo;s
+        entries and calendar bookings; restoring it replaces only that period. <em>All time</em> is a full backup
+        of everything.{% endif %}
+      </p>
+    </div>
+    <div class="modal__foot">
+      <button class="btn btn--ghost" type="button" data-close-modal>Cancel</button>
+      {% if is_admin %}
+        <button class="btn" type="submit" formaction="{{ url_for('admin_backup') }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></svg>
+          Download backup
+        </button>
+      {% endif %}
+      <button class="btn btn--primary" type="submit" formaction="{{ url_for('export_xlsx') }}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+        Download Excel
+      </button>
+    </div>
+  </form>
+</dialog>

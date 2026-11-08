@@ -1,0 +1,44 @@
+{#  Period chooser used inside the Export and Send-mail dialogs. Starts on the
+    period on screen; `pp` prefixes the ids so two pickers can share a page. #}
+{% set pk = period.kind if period.kind in ['month','quarter','year','all','custom'] else 'month' %}
+{% set p_month = period.params.month if period.kind == 'month' else (period.end or now_date).strftime('%Y-%m') %}
+{% set p_year = (period.params.year if period.params.year is defined else (period.end or now_date).year) | string %}
+{% set p_q = (period.params.quarter if period.params.quarter is defined else (((period.end or now_date).month - 1) // 3 + 1)) | string %}
+<div class="form-grid" data-period-picker>
+  <div class="field span-2">
+    <label>Period</label>
+    <div class="seg seg--pick" role="radiogroup" aria-label="Period">
+      {% for value, text in [('month','Monthly'),('quarter','Quarterly'),('year','Yearly'),('all','All time'),('custom','Custom')] %}
+        <label><input type="radio" name="period" value="{{ value }}" {{ 'checked' if pk == value }}><span>{{ text }}</span></label>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="field" data-pp-show="month">
+    <label for="{{ pp }}-pp-pp-month">Month</label>
+    <input type="month" id="{{ pp }}-pp-pp-month" name="month" value="{{ p_month }}">
+  </div>
+  <div class="field" data-pp-show="quarter year">
+    <label for="{{ pp }}-pp-pp-year">Year</label>
+    <select id="{{ pp }}-pp-pp-year" name="year">
+      {% for y in (year_choices + [p_year | int]) | unique | sort(reverse=true) %}
+        <option value="{{ y }}" {{ 'selected' if y|string == p_year }}>{{ y }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="field" data-pp-show="quarter">
+    <label for="{{ pp }}-pp-pp-q">Quarter</label>
+    <select id="{{ pp }}-pp-pp-q" name="quarter">
+      {% for q, lbl in [(1,'Q1 Jan–Mar'),(2,'Q2 Apr–Jun'),(3,'Q3 Jul–Sep'),(4,'Q4 Oct–Dec')] %}
+        <option value="{{ q }}" {{ 'selected' if q|string == p_q }}>{{ lbl }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="field" data-pp-show="custom">
+    <label for="{{ pp }}-pp-pp-from">From</label>
+    <input type="date" id="{{ pp }}-pp-pp-from" name="from" value="{{ period.params.get('from','') or (period.start or now_date).isoformat() }}">
+  </div>
+  <div class="field" data-pp-show="custom">
+    <label for="{{ pp }}-pp-pp-to">To</label>
+    <input type="date" id="{{ pp }}-pp-pp-to" name="to" value="{{ period.params.get('to','') or (period.end or now_date).isoformat() }}">
+  </div>
+</div>

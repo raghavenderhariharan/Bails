@@ -84,38 +84,76 @@
 {% if is_admin %}
 <div class="card">
   <div class="card__head">
-    <h2>Equity split</h2>
+    <h2>Partners &amp; equity split</h2>
     <span class="spacer"></span>
-    <span class="small muted">Names and percentages are editable. Active equity should total 100%.</span>
+    <span class="small muted">Edit any field; the amounts recalculate as you type. Save to apply.</span>
   </div>
   <div class="card__body">
-    <form method="post" action="{{ url_for('partners_save') }}">
+    <form method="post" action="{{ url_for('partners_save') }}" id="partnersForm" data-net="{{ summary.net }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="next" value="{{ request.full_path }}">
       <div class="table-scroll">
-        <table class="ledger">
-          <thead><tr><th>Partner name</th><th class="num" style="width:150px">Equity %</th><th style="width:110px">Active</th></tr></thead>
+        <table class="ledger ledger--edit">
+          <thead><tr>
+            <th>Partner name</th><th class="num" style="width:120px">Equity %</th>
+            <th>Phone</th><th>Email</th>
+            <th class="num">Share &middot; {{ period.label }}</th>
+            <th style="width:96px">Include</th><th class="col-actions"></th>
+          </tr></thead>
           <tbody>
             {% for p in all_partners %}
-              <tr>
+              <tr data-partner-row>
                 <td><input type="text" name="name_{{ p.id }}" value="{{ p.name }}" maxlength="120" required
                            aria-label="Name for partner {{ loop.index }}"></td>
                 <td><input type="number" name="equity_{{ p.id }}" value="{{ p.equity_pct | round(3) | float | round(2) }}"
-                           min="0" max="100" step="0.01" class="num" aria-label="Equity percent for {{ p.name }}"></td>
+                           min="0" max="100" step="0.01" class="num" data-equity
+                           aria-label="Equity percent for {{ p.name }}"></td>
+                <td><input type="tel" name="phone_{{ p.id }}" value="{{ p.phone }}" maxlength="40"
+                           placeholder="Optional" aria-label="Phone for {{ p.name }}"></td>
+                <td><input type="email" name="email_{{ p.id }}" value="{{ p.email }}" maxlength="255"
+                           placeholder="Optional" aria-label="Email for {{ p.name }}"></td>
+                <td class="num nowrap" data-share>—</td>
                 <td>
-                  <label style="display:flex;align-items:center;gap:.4rem;font-size:.85rem">
-                    <input type="checkbox" name="active_{{ p.id }}" {{ 'checked' if p.is_active }} style="width:auto">
-                    Include
+                  <label class="check small">
+                    <input type="checkbox" name="active_{{ p.id }}" {{ 'checked' if p.is_active }} data-active> Include
                   </label>
+                </td>
+                <td class="col-actions">
+                  <button class="btn btn--sm btn--danger" type="submit" formnovalidate
+                          formaction="{{ url_for('partner_delete', partner_id=p.id) }}"
+                          data-confirm-click="Remove {{ p.name }} from the partners? This cannot be undone.">Remove</button>
                 </td>
               </tr>
             {% endfor %}
           </tbody>
+          <tfoot>
+            <tr>
+              <td>Total (included partners)</td>
+              <td class="num" data-equity-total>—</td>
+              <td colspan="2" class="small" data-equity-note></td>
+              <td class="num" data-share-total>—</td>
+              <td colspan="2"></td>
+            </tr>
+          </tfoot>
         </table>
       </div>
       <div style="display:flex;justify-content:flex-end;margin-top:1rem">
-        <button class="btn btn--primary" type="submit">Save equity split</button>
+        <button class="btn btn--primary" type="submit">Save partners</button>
       </div>
+    </form>
+
+    <form method="post" action="{{ url_for('partner_create') }}" class="add-row">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <div class="field">
+        <label for="np-name">Add a partner</label>
+        <input type="text" id="np-name" name="name" maxlength="120" placeholder="Name" required>
+      </div>
+      <div class="field" style="max-width:140px">
+        <label for="np-equity">Equity %</label>
+        <input type="number" id="np-equity" name="equity" min="0" max="100" step="0.01" value="0" class="num">
+      </div>
+      <button class="btn" type="submit">Add partner</button>
     </form>
   </div>
 </div>
@@ -129,12 +167,14 @@
   <div class="card__body card__body--flush">
     <div class="table-scroll">
       <table class="ledger">
-        <thead><tr><th>Partner name</th><th class="num">Equity %</th><th>Status</th></tr></thead>
+        <thead><tr><th>Partner name</th><th class="num">Equity %</th><th>Phone</th><th>Email</th><th>Status</th></tr></thead>
         <tbody>
           {% for p in all_partners %}
             <tr>
               <td><strong>{{ p.name }}</strong></td>
               <td class="num">{{ p.equity_pct | round(3) | float | round(2) }}%</td>
+              <td class="small">{{ p.phone or '—' }}</td>
+              <td class="small">{{ p.email or '—' }}</td>
               <td>
                 {% if p.is_active %}
                   <span class="tag tag--credit">Active</span>

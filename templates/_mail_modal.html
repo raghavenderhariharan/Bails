@@ -1,0 +1,57 @@
+{# Admin: email the period's workbook. Subject and body are written for the
+   chosen period (fetched from /mail/draft) and stay editable. #}
+<dialog class="modal modal--wide" id="mailModal" aria-labelledby="mailModalTitle">
+  <form method="post" action="{{ url_for('mail_send') }}" id="mailForm"
+        data-draft-url="{{ url_for('mail_draft') }}" data-export-url="{{ url_for('export_xlsx') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="next" value="{{ request.full_path }}">
+    <div class="modal__head">
+      <h2 id="mailModalTitle">Send ledger by email</h2>
+      <span class="spacer"></span>
+      <button class="btn btn--sm btn--ghost btn--icon" type="button" data-close-modal aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true" style="width:18px;height:18px"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="modal__body">
+      {% with pp = 'm' %}{% include "_period_picker.html" %}{% endwith %}
+      <div class="form-grid" style="margin-top:.9rem">
+        <div class="field span-2">
+          <label for="m-to">To</label>
+          <textarea id="m-to" name="recipients" rows="2" required
+                    placeholder="name@example.com; another@example.com"></textarea>
+          <div style="margin-top:.35rem">
+            <label class="check small">
+              <input type="checkbox" name="remember" checked> Remember these addresses for next time
+            </label>
+          </div>
+        </div>
+        <div class="field span-2">
+          <label for="m-subject">Subject</label>
+          <input type="text" id="m-subject" name="subject" maxlength="200">
+        </div>
+        <div class="field span-2">
+          <label for="m-body">Message</label>
+          <textarea id="m-body" name="body" rows="12" class="mono"></textarea>
+        </div>
+        <div class="span-2 small muted" id="m-attach"></div>
+      </div>
+      {% if not mail_transport %}
+        <div class="banner" style="margin:1rem 0 0">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+          <span>Sending from the site isn&rsquo;t set up yet (see DEPLOY.md &rarr; <em>Email</em>).
+            Meanwhile, <strong>Open in Gmail</strong> downloads the workbook and opens a Gmail draft with
+            the addresses, subject and message filled in &mdash; attach the downloaded file and send.</span>
+        </div>
+      {% endif %}
+    </div>
+    <div class="modal__foot">
+      <button class="btn btn--ghost" type="button" data-close-modal>Cancel</button>
+      <button class="btn" type="button" data-mail-gmail>Open in Gmail</button>
+      <button class="btn btn--primary" type="submit" {{ 'disabled' if not mail_transport }}
+              title="{{ 'Send from the site with the workbook attached' if mail_transport else 'Email is not set up on this server' }}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+        Send
+      </button>
+    </div>
+  </form>
+</dialog>

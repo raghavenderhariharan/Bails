@@ -1,8 +1,8 @@
 """Build an .xlsx export that mirrors the layout of BailsLedgerBook.xlsx.
 
 Two sheets reproduce the original workbook (``Dashboard`` and
-``Transaction Ledger``); a third, ``Partner Profit``, adds the equity split the
-app computes. Regenerating always produces the same shape, so the file can be
+``Transaction Ledger``); ``Partner Profit`` adds the equity split the app
+computes, and ``Ground Calendar`` lists the blocked slots and full days. Regenerating always produces the same shape, so the file can be
 overwritten in place as "the latest".
 """
 from datetime import date, timedelta, timezone
@@ -272,6 +272,79 @@ def _build_partners(wb, period, summary, shares):
     return ws
 
 
+def _build_calendar(wb, period):
+    """Every blocked slot / full day in the period, one row per booking."""
+    from finance import booking_summary
+    from models import BOOKING_SLOTS, FULL_DAY
+
+    stats = booking_summary(period.start, period.end)
+    ws = wb.create_sheet("Ground Calendar")
+    ws.sheet_view.showGridLines = False
+    _widths(ws, [16, 12, 13, 13, 13, 13, 26, 34])
+
+    _title(ws, "A1:H2", "GROUND CALENDAR \u2014 BLOCKED SLOTS")
+    ws["A4"] = "Period"
+    ws["A4"].font = Font(bold=True)
+    ws["B4"] = period.label
+    for row, (label, value) in enumerate((
+        ("Days with bookings", stats["days_blocked"]),
+        ("Full days blocked", stats["full_days"]),
+        (f"Slots blocked (a full day = {stats['slots_per_day']})", stats["blocked_slots"]),
+    ), start=5):
+        ws.cell(row=row, column=1, value=label).font = Font(bold=True)
+        ws.cell(row=row, column=4, value=value).font = Font(bold=True, color=NAVY)
+
+    # Day-by-slot grid: one row per booked day, so "which day, which slot" reads at a glance.
+    _header_row(ws, 9, ["Date", "Day"] + BOOKING_SLOTS + [FULL_DAY, "Booked by", "Note"])
+    line = 9
+    by_date = {}
+    for b in stats["bookings"]:
+        by_date.setdefault(b.booking_date, []).append(b)
+    full_fill = PatternFill("solid", fgColor="F7D4D5")
+    slot_fill = PatternFill("solid", fgColor=CREAM)
+    for day, items in by_date.items():
+        line += 1
+        cell = ws.cell(row=line, column=1, value=day)
+        cell.number_format = DATE_FMT
+        ws.cell(row=line, column=2, value=day.strftime("%a"))
+        slots = {b.slot: b for b in items}
+        for offset, slot in enumerate(BOOKING_SLOTS + [FULL_DAY]):
+            mark = ws.cell(row=line, column=3 + offset)
+            if slot in slots or FULL_DAY in slots:
+                mark.value = "Blocked"
+                mark.fill = full_fill if FULL_DAY in slots else slot_fill
+                mark.font = Font(bold=True, color=RED if FULL_DAY in slots else "000000")
+            else:
+                mark.value = "Free"
+                mark.font = Font(color="7C8780")
+            mark.alignment = Alignment(horizontal="center")
+        ws.cell(row=line, column=7, value=", ".join(dict.fromkeys(b.booked_by for b in items if b.booked_by)))
+        ws.cell(row=line, column=8, value="; ".join(f"{b.slot}: {b.note}" for b in items if b.note))
+        for column in range(1, 9):
+            ws.cell(row=line, column=column).border = BOX
+    if not by_date:
+        ws.cell(row=10, column=1, value="Nothing blocked in this period.").font = Font(italic=True, color="7C8780")
+
+    # And the plain list, one row per booking, for filtering or copying.
+    start = line + 3
+    ws.cell(row=start - 1, column=1, value="All bookings").font = Font(bold=True, size=12, color=GREEN_DARK)
+    _header_row(ws, start, ["Date", "Day", "Slot", "Booked by", "Note"])
+    for offset, b in enumerate(stats["bookings"], start=1):
+        row = start + offset
+        cell = ws.cell(row=row, column=1, value=b.booking_date)
+        cell.number_format = DATE_FMT
+        ws.cell(row=row, column=2, value=b.booking_date.strftime("%a"))
+        slot = ws.cell(row=row, column=3, value=b.slot)
+        if b.slot == FULL_DAY:
+            slot.font = Font(bold=True, color=RED)
+        ws.cell(row=row, column=4, value=b.booked_by or "")
+        ws.cell(row=row, column=5, value=b.note or "")
+        for column in range(1, 6):
+            ws.cell(row=row, column=column).border = BOX
+    ws.freeze_panes = "A10"
+    return ws
+
+
 def build_workbook(period, generated_at=None):
     """Assemble the whole workbook for a period. Caller supplies the timestamp."""
     from finance import partner_shares, trend_window
@@ -288,6 +361,7 @@ def build_workbook(period, generated_at=None):
     _build_dashboard(wb, period, summary, trend)
     _build_ledger(wb, period)
     _build_partners(wb, period, summary, shares)
+    _build_calendar(wb, period)
 
     # An empty <workbookProtection/> element serves no purpose and is one more
     # thing for Excel to object to.

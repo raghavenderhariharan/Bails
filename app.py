@@ -25,15 +25,17 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from config import Config
 from finance import (
     MONTH_NAMES, apply_period, balance_as_of, category_breakdown, data_bounds, fmt_money,
-    LEASE_VALUE_KEY, ground_settlement, lease_value,
-    opening_balance, parse_period, partner_shares, q2, totals, trend_window,
+    LEASE_VALUE_KEY, booking_summary, ground_settlement, lease_value,
+    opening_balance, parse_period, partner_shares, period_opening, q2, totals, trend_window,
     watchman_settlement,
 )
 from models import (
     EXPENSE, EXPENSE_CATEGORIES, INCOME, INCOME_CATEGORIES, KINDS,
     BOOKING_SLOTS, FULL_DAY, ROLE_ADMIN, ROLE_LABELS, ROLE_PARTNER, ROLES, SLOTS,
-    ExPartner, GroundBooking, GroundPayment, Partner, Setting, Transaction, Watchman, db,
+    DEFAULT_MAIL_RECIPIENTS, ExPartner, GroundBooking, GroundPayment, MailRecipient, Partner, Setting,
+    Transaction, Watchman, db,
 )
+import mailer
 
 csrf = CSRFProtect()
 
@@ -138,6 +140,13 @@ def _ensure_columns(app: Flask) -> None:
                     "ALTER TABLE ex_partners ADD COLUMN share_pct NUMERIC(6,3) NOT NULL DEFAULT 0"))
                 db.session.commit()
                 app.logger.info("Added ex_partners.share_pct")
+        partner_columns = {c["name"] for c in inspector.get_columns("partners")}
+        for column, ddl in (("phone", "VARCHAR(40)"), ("email", "VARCHAR(255)")):
+            if column not in partner_columns:
+                db.session.execute(text(
+                    f"ALTER TABLE partners ADD COLUMN {column} {ddl} NOT NULL DEFAULT ''"))
+                db.session.commit()
+                app.logger.info("Added partners.%s", column)
     except (OperationalError, ProgrammingError) as exc:  # pragma: no cover
         db.session.rollback()
         app.logger.warning("column migration skipped: %s", exc)
@@ -178,6 +187,12 @@ def _bootstrap(app: Flask) -> None:
             db.session.add(Setting(key=LEASE_VALUE_KEY, value=str(DEFAULT_LEASE_VALUE)))
         if db.session.query(ExPartner.id).first() is None:
             _seed_ground_ledger()
+        # Seed the mail list once; after that an emptied list stays empty.
+        if db.session.get(Setting, "mail_recipients_seeded") is None:
+            if db.session.query(MailRecipient.id).first() is None:
+                for index, address in enumerate(DEFAULT_MAIL_RECIPIENTS):
+                    db.session.add(MailRecipient(email=address, sort_order=index))
+            db.session.add(Setting(key="mail_recipients_seeded", value="1"))
         db.session.commit()
     except IntegrityError:
         # A concurrent worker seeded first. Its rows are equivalent to ours.
@@ -462,6 +477,7 @@ def _register_filters(app: Flask) -> None:
             "can_edit": is_admin(),
             "partner_passcode_required": bool(app.config.get("PARTNER_PASSCODE")),
             "drive_sync_ready": _drive_ready(app),
+            "mail_transport": mailer.transport() if is_admin() else "",
             "current_year": date.today().year,
             "MONTH_NAMES": MONTH_NAMES,
         }
@@ -481,6 +497,24 @@ def _year_choices():
 
 def _filter_context(period):
     return {"period": period, "year_choices": _year_choices()}
+
+
+def _period_slug(period) -> str:
+    """A filename-safe tag for a period: 2026-10, 2026-Q4, 2026, 2026-10-01_2026-10-15, all."""
+    if period.kind == "month":
+        return period.params["month"]
+    if period.kind == "quarter":
+        return f"{period.params['year']}-Q{period.params['quarter']}"
+    if period.kind == "year":
+        return period.params["year"]
+    if period.kind == "custom" and (period.start or period.end):
+        return f"{period.start or 'start'}_{period.end or 'today'}"
+    return "all"
+
+
+def _export_filename(period) -> str:
+    # The period it covers, then the day it was taken (so repeat downloads sort).
+    return f"BailsLedgerBook-{_period_slug(period)}-{date.today().isoformat()}.xlsx"
 
 
 def _register_routes(app: Flask) -> None:
@@ -578,7 +612,7 @@ def _register_routes(app: Flask) -> None:
             trend_label=trend["label"],
             recent=recent,
             closing_balance=balance_as_of(period.end),
-            opening=opening_balance(),
+            opening=period_opening(period),
             **_filter_context(period),
         )
 
@@ -849,14 +883,8 @@ def _register_routes(app: Flask) -> None:
         year, month = _calendar_month(request.args.get("month"))
         first = date(year, month, 1)
         last = date(year, month, _calendar.monthrange(year, month)[1])
-        bookings = (
-            GroundBooking.query
-            .filter(GroundBooking.booking_date >= first, GroundBooking.booking_date <= last)
-            .all()
-        )
-        # Full Day first, then slots in time-of-day order ("2:30 PM" sorts before "7:00 AM" as text).
-        slot_order = {s: i for i, s in enumerate(BOOKING_SLOTS)}
-        bookings.sort(key=lambda b: (b.booking_date, slot_order.get(b.slot, -1)))
+        month_stats = booking_summary(first, last)
+        bookings = month_stats["bookings"]
         by_day = {}
         for b in bookings:
             by_day.setdefault(b.booking_date, []).append(b)
@@ -882,8 +910,10 @@ def _register_routes(app: Flask) -> None:
 
         prev_month = (first - timedelta(days=1)).strftime("%Y-%m")
         next_month = (last + timedelta(days=1)).strftime("%Y-%m")
-        full_days = sum(1 for w in weeks for d in w if d["in_month"] and d["status"] == "full")
-        blocked_slots = sum(len(BOOKING_SLOTS) if b.slot == FULL_DAY else 1 for b in bookings)
+        full_days = month_stats["full_days"]
+        blocked_slots = month_stats["blocked_slots"]
+        # The Export / Send mail dialogs start on the month being viewed.
+        period = parse_period({"period": "month", "month": first.strftime("%Y-%m")})
         return render_template(
             "calendar.html",
             weeks=weeks, year=year, month=month,
@@ -893,6 +923,7 @@ def _register_routes(app: Flask) -> None:
             bookings=bookings, full_days=full_days, blocked_slots=blocked_slots,
             booking_slots=BOOKING_SLOTS, full_day=FULL_DAY,
             weekday_names=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+            **_filter_context(period),
         )
 
     @app.post("/calendar/block")
@@ -940,6 +971,51 @@ def _register_routes(app: Flask) -> None:
             flash("That slot was just blocked by someone else. Please refresh.", "error")
             return _safe_redirect(target, "booking_calendar")
         flash(f"Blocked {', '.join(slots)} on {label}.", "success")
+        return _safe_redirect(target, "booking_calendar")
+
+    @app.post("/calendar/<int:booking_id>/edit")
+    @admin_required
+    def booking_update(booking_id: int):
+        """Move or re-enter one booking: change its date, slot, name or note."""
+        booking = db.session.get(GroundBooking, booking_id)
+        if booking is None:
+            abort(404)
+        target = request.form.get("next")
+        try:
+            when = _parse_date(request.form.get("booking_date"))
+        except FormError as exc:
+            flash(str(exc), "error")
+            return _safe_redirect(target, "booking_calendar")
+        slot = (request.form.get("slot") or "").strip()
+        if slot not in set(BOOKING_SLOTS) | {FULL_DAY}:
+            flash("Choose a slot, or Full Day.", "error")
+            return _safe_redirect(target, "booking_calendar")
+
+        others = {b.slot for b in GroundBooking.query.filter_by(booking_date=when).all()
+                  if b.id != booking.id}
+        label = when.strftime("%d %b %Y")
+        if FULL_DAY in others:
+            flash(f"{label} is already blocked for the full day.", "error")
+            return _safe_redirect(target, "booking_calendar")
+        if slot == FULL_DAY and others:
+            flash(f"{label} already has {', '.join(sorted(others))} blocked \u2014 "
+                  f"remove those first to block the full day.", "error")
+            return _safe_redirect(target, "booking_calendar")
+        if slot in others:
+            flash(f"{slot} on {label} is already blocked.", "error")
+            return _safe_redirect(target, "booking_calendar")
+
+        booking.booking_date = when
+        booking.slot = slot
+        booking.booked_by = _clip(request.form.get("booked_by"), 120)
+        booking.note = _clip(request.form.get("note"), 255)
+        try:
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            flash("That slot was just blocked by someone else. Please refresh.", "error")
+            return _safe_redirect(target, "booking_calendar")
+        flash(f"Updated: {slot} on {label}.", "success")
         return _safe_redirect(target, "booking_calendar")
 
     @app.post("/calendar/<int:booking_id>/delete")
@@ -1059,8 +1135,16 @@ def _register_routes(app: Flask) -> None:
                     raise FormError(f"Equity for {name} must be a number.")
                 if not equity.is_finite() or not (Decimal("0") <= equity <= Decimal("100")):
                     raise FormError(f"Equity for {name} must be between 0 and 100.")
+                email = _clip(request.form.get(f"email_{partner.id}"), 255).lower()
+                if email:
+                    try:
+                        mailer.parse_recipients(email)
+                    except mailer.MailError:
+                        raise FormError(f"Email for {name} is not a valid address.")
                 partner.name = name
                 partner.equity_pct = equity
+                partner.phone = _clip(request.form.get(f"phone_{partner.id}"), 40)
+                partner.email = email
                 partner.is_active = request.form.get(f"active_{partner.id}") == "on"
         except FormError as exc:
             db.session.rollback()
@@ -1088,6 +1172,53 @@ def _register_routes(app: Flask) -> None:
         else:
             flash("Partners updated.", "success")
         return _safe_redirect(request.form.get("next"), "partners")
+
+    @app.post("/partners/new")
+    @admin_required
+    def partner_create():
+        target = request.form.get("next")
+        name = _clip(request.form.get("name"), 120)
+        if not name:
+            flash("Give the new partner a name.", "error")
+            return _safe_redirect(target, "partners")
+        if Partner.query.filter(db.func.lower(Partner.name) == name.lower()).first():
+            flash(f"There is already a partner called {name}.", "error")
+            return _safe_redirect(target, "partners")
+        try:
+            equity = Decimal((request.form.get("equity") or "0").strip() or "0")
+        except (InvalidOperation, ValueError):
+            equity = Decimal("-1")
+        if not equity.is_finite() or not (Decimal("0") <= equity <= Decimal("100")):
+            flash("Equity must be a number between 0 and 100.", "error")
+            return _safe_redirect(target, "partners")
+        last = db.session.query(db.func.max(Partner.sort_order)).scalar()
+        db.session.add(Partner(name=name, equity_pct=equity, is_active=True,
+                               sort_order=(last if last is not None else -1) + 1))
+        try:
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            flash(f"There is already a partner called {name}.", "error")
+            return _safe_redirect(target, "partners")
+        flash(f"Added {name} at {equity.normalize():f}%. Check the split still totals 100%.", "success")
+        return _safe_redirect(target, "partners")
+
+    @app.post("/partners/<int:partner_id>/delete")
+    @admin_required
+    def partner_delete(partner_id: int):
+        partner = db.session.get(Partner, partner_id)
+        if partner is None:
+            abort(404)
+        target = request.form.get("next")
+        if GroundPayment.query.filter_by(partner_id=partner.id).first():
+            flash(f"{partner.name} has ground payments recorded, so they can't be removed. "
+                  f"Untick \u201cInclude\u201d to leave them out of the profit split instead.", "error")
+            return _safe_redirect(target, "partners")
+        name = partner.name
+        db.session.delete(partner)
+        db.session.commit()
+        flash(f"Removed {name}. Check the split still totals 100%.", "success")
+        return _safe_redirect(target, "partners")
 
     # ---------------- transaction writes ----------------
 
@@ -1149,14 +1280,11 @@ def _register_routes(app: Flask) -> None:
     def export_xlsx():
         period = parse_period(request.args)
         payload = _workbook_bytes(period)
-        # Stamp the filename with the download date (when it was taken), not the
-        # end of the period being exported.
-        stamp = date.today().isoformat()
         return Response(
             payload,
             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={
-                "Content-Disposition": f'attachment; filename="BailsLedgerBook-{stamp}.xlsx"',
+                "Content-Disposition": f'attachment; filename="{_export_filename(period)}"',
                 "Content-Length": str(len(payload)),
             },
         )
@@ -1205,28 +1333,158 @@ def _register_routes(app: Flask) -> None:
               f"Google Drive will upload it shortly.", "success")
         return _safe_redirect(request.form.get("next"))
 
+    # ---------------- email ----------------
+
+    _PERIOD_NOUN = {"month": "Monthly", "quarter": "Quarterly", "year": "Yearly",
+                    "all": "All-time", "custom": "Custom range"}
+
+    def _mail_draft(period) -> dict:
+        """Subject and body written from the figures for the chosen period."""
+        cur = app.config["CURRENCY_SYMBOL"]
+        summary = totals(period)
+        partners = Partner.query.filter_by(is_active=True).order_by(Partner.sort_order, Partner.id).all()
+        shares = partner_shares(summary["net"], partners)
+        opening = period_opening(period)
+        closing = balance_as_of(period.end)
+        noun = _PERIOD_NOUN.get(period.kind, "")
+        result = "profit" if summary["net"] >= 0 else "loss"
+
+        def money(value):
+            return f"{cur}{fmt_money(value)}"
+
+        lines = [
+            "Hello,",
+            "",
+            f"Please find attached the Bail's Cricket Ground ledger for {period.label}.",
+            "",
+            f"Summary \u2014 {period.label}",
+            f"  Opening balance:   {money(opening)}",
+            f"  Income (credit):   {money(summary['income'])}",
+            f"  Expenses (debit):  {money(summary['expense'])}",
+            f"  {'Net ' + result + ':':<19}{money(summary['net'])}",
+            f"  Closing balance:   {money(closing)}",
+            f"  Entries:           {summary['count']}",
+        ]
+        if shares["rows"]:
+            lines += ["", f"Partner share of net {result}"]
+            for row in shares["rows"]:
+                lines.append(f"  {row['name']} ({row['equity'].normalize():f}%): {money(row['share'])}")
+        cal = booking_summary(period.start, period.end)
+        lines += ["", "Ground calendar"]
+        if cal["bookings"]:
+            lines += [
+                f"  Days with bookings: {cal['days_blocked']}",
+                f"  Full days blocked:  {cal['full_days']}",
+                f"  Slots blocked:      {cal['blocked_slots']}",
+                "",
+            ]
+            shown = cal["bookings"][:40]
+            for b in shown:
+                who = f" \u2014 {b.booked_by}" if b.booked_by else ""
+                note = f" ({b.note})" if b.note else ""
+                lines.append(f"  {b.booking_date.strftime('%a %d %b %Y')}  {b.slot}{who}{note}")
+            if len(cal["bookings"]) > len(shown):
+                lines.append(f"  \u2026and {len(cal['bookings']) - len(shown)} more in the workbook.")
+        else:
+            lines.append("  Nothing blocked in this period.")
+
+        filename = _export_filename(period)
+        lines += [
+            "",
+            f"The full ledger and calendar are in the attached workbook ({filename}).",
+            "",
+            "Regards,",
+            "Bail's Cricket Ground",
+        ]
+        return {
+            "subject": f"Bail's Cricket Ground \u2014 {noun} ledger: {period.label}",
+            "body": "\n".join(lines),
+            "filename": filename,
+        }
+
+    def _saved_recipients() -> list:
+        return [m.email for m in MailRecipient.query.order_by(MailRecipient.sort_order, MailRecipient.id)]
+
+    @app.get("/mail/draft")
+    @admin_required
+    def mail_draft():
+        period = parse_period(request.args)
+        return jsonify(label=period.label, recipients=_saved_recipients(), **_mail_draft(period))
+
+    @app.post("/mail/send")
+    @admin_required
+    def mail_send():
+        target = request.form.get("next")
+        period = parse_period(request.form)
+        try:
+            recipients = mailer.parse_recipients(request.form.get("recipients"))
+        except mailer.MailError as exc:
+            flash(str(exc), "error")
+            return _safe_redirect(target)
+        if not recipients:
+            flash("Add at least one email address.", "error")
+            return _safe_redirect(target)
+
+        draft = _mail_draft(period)
+        subject = _clip(request.form.get("subject"), 200) or draft["subject"]
+        body = (request.form.get("body") or "").strip()[:20000] or draft["body"]
+
+        if request.form.get("remember") == "on" and recipients != _saved_recipients():
+            MailRecipient.query.delete()
+            for index, address in enumerate(recipients):
+                db.session.add(MailRecipient(email=address, sort_order=index))
+            db.session.commit()
+
+        if not mailer.transport():
+            flash("Email isn't set up on this server yet, so nothing was sent. "
+                  "Use \u201cOpen in Gmail\u201d, or see DEPLOY.md to set it up.", "error")
+            return _safe_redirect(target)
+        try:
+            message = mailer.build_message(recipients, subject, body,
+                                           _workbook_bytes(period), draft["filename"])
+            mailer.deliver(message)
+        except mailer.MailError as exc:
+            app.logger.warning("mail send failed: %s", exc)
+            flash(f"Email not sent: {exc}", "error")
+            return _safe_redirect(target)
+        flash(f"Emailed the {period.label} ledger to {', '.join(recipients)}.", "success")
+        return _safe_redirect(target)
+
     # ---------------- backup ----------------
 
     @app.get("/admin/backup.json")
     @admin_required
     def admin_backup():
-        """Download a complete, portable snapshot of the whole database.
+        """Download a portable snapshot: the whole database, or one period.
+
+        With no period (or "All time") it is a full backup of every table. With
+        a month/quarter/year/custom range it holds just that range's entries
+        and calendar bookings, and restoring it replaces only that range.
 
         Works the same on SQLite and Postgres: it reads every row through the
-        ORM rather than copying a file, so a Render (Postgres) admin gets the
-        same backup a laptop (SQLite) admin does. Restore with restore_backup.py.
+        ORM rather than copying a file. Restore with restore_backup.py or the
+        Restore button.
         """
         import json
-        from backup import build_backup
+        from backup import build_backup, build_period_backup
 
-        snapshot = build_backup(generated_at=datetime.now(timezone.utc))
+        period = parse_period(request.args) if request.args.get("period") else None
+        if period is not None and not (period.start and period.end):
+            period = None  # all time, or an open-ended custom range: back up everything
+        now = datetime.now(timezone.utc)
+        if period is None:
+            snapshot = build_backup(generated_at=now)
+            scope = "full"
+        else:
+            snapshot = build_period_backup(period, generated_at=now)
+            scope = _period_slug(period)
         payload = json.dumps(snapshot, indent=2, ensure_ascii=False)
         stamp = date.today().isoformat()
         return Response(
             payload,
             mimetype="application/json",
             headers={
-                "Content-Disposition": f'attachment; filename="bails-ledger-backup-{stamp}.json"',
+                "Content-Disposition": f'attachment; filename="bails-ledger-backup-{scope}-{stamp}.json"',
                 "Content-Length": str(len(payload.encode("utf-8"))),
             },
         )
@@ -1272,11 +1530,18 @@ def _register_routes(app: Flask) -> None:
             flash("Restore failed. Nothing was changed.", "error")
             return _safe_redirect(target)
 
-        flash(
-            f"Restored {counts['transactions']} transactions, {counts['partners']} partners "
-            f"and {counts.get('watchmen', 0)} watchmen from the backup.",
-            "success",
-        )
+        if counts.get("scope"):
+            flash(
+                f"Restored {counts['scope']}: {counts['transactions']} transactions and "
+                f"{counts['ground_bookings']} calendar bookings. Other periods were not touched.",
+                "success",
+            )
+        else:
+            flash(
+                f"Restored {counts['transactions']} transactions, {counts['partners']} partners "
+                f"and {counts.get('watchmen', 0)} watchmen from the backup.",
+                "success",
+            )
         return _safe_redirect(target)
 
     # ---------------- ops ----------------

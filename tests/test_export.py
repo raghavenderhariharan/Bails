@@ -355,4 +355,4 @@ def test_xlsx_filename_uses_todays_date_not_the_period_end(app):
     client = admin(app)
     for query in ("period=month&month=2026-10", "period=year&year=2026", "period=all"):
         cd = client.get(f"/export.xlsx?{query}").headers["Content-Disposition"]
-        assert f"BailsLedgerBook-{today}.xlsx" in cd, cd
+        assert cd.endswith(f'-{today}.xlsx"') and "BailsLedgerBook-" in cd, cd
