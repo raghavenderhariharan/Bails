@@ -480,6 +480,7 @@ def _register_filters(app: Flask) -> None:
             "mail_transport": mailer.transport() if is_admin() else "",
             "current_year": date.today().year,
             "MONTH_NAMES": MONTH_NAMES,
+            "PERIOD_TAGS": PERIOD_TAGS,
         }
 
 
@@ -497,6 +498,11 @@ def _year_choices():
 
 def _filter_context(period):
     return {"period": period, "year_choices": _year_choices()}
+
+
+# Shown after a figure to say what span it covers: "Net profit (Quarterly)".
+PERIOD_TAGS = {"month": "Monthly", "quarter": "Quarterly", "year": "Yearly",
+               "all": "All time", "custom": "Custom range"}
 
 
 def _period_slug(period) -> str:

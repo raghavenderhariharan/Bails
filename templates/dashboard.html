@@ -48,7 +48,7 @@
   </div>
 
   <div class="kpi kpi--net">
-    <div class="kpi__label">Net profit</div>
+    <div class="kpi__label">Net profit ({{ PERIOD_TAGS[period.kind] }})</div>
     <div class="kpi__value {{ 'v-neg' if summary.net < 0 else '' }}">
       <span class="cur">{{ CURRENCY }}</span>{{ summary.net | money }}
     </div>

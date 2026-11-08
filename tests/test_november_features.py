@@ -542,3 +542,18 @@ def test_calendar_page_has_export_and_mail(app):
     assert 'id="mailModal"' in body and 'value="2026-11"' in body
     p = partner(app).get("/calendar?month=2026-11").get_data(as_text=True)
     assert 'id="exportModal"' in p and 'id="mailModal"' not in p
+
+
+@pytest.mark.parametrize("query,tag", [
+    ("period=month&month=2026-10", "Monthly"),
+    ("period=quarter&year=2026&quarter=4", "Quarterly"),
+    ("period=year&year=2026", "Yearly"),
+    ("period=all", "All time"),
+    ("period=custom&from=2026-10-01&to=2026-10-15", "Custom range"),
+])
+def test_net_profit_label_names_the_period(app, query, tag):
+    c = admin(app)
+    seed(c)
+    assert f"Net profit ({tag})" in c.get(f"/?{query}").get_data(as_text=True)
+    assert f"Net profit ({tag})" in c.get(f"/income?{query}").get_data(as_text=True)
+    assert f"Distributable net profit ({tag})" in c.get(f"/partners?{query}").get_data(as_text=True)

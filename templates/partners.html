@@ -29,7 +29,7 @@
     <div class="kpi__value kpi__value--debit"><span class="cur">{{ CURRENCY }}</span>{{ summary.expense | money }}</div>
   </div>
   <div class="kpi kpi--net">
-    <div class="kpi__label">Distributable net profit</div>
+    <div class="kpi__label">Distributable net profit ({{ PERIOD_TAGS[period.kind] }})</div>
     <div class="kpi__value {{ 'v-neg' if summary.net < 0 else '' }}"><span class="cur">{{ CURRENCY }}</span>{{ summary.net | money }}</div>
     <div class="kpi__meta">{{ period.label }}</div>
   </div>
