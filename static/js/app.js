@@ -177,6 +177,33 @@
 
   if (confirmInput) confirmInput.addEventListener("input", syncButton);
   modal.addEventListener("click", function (event) { if (event.target === modal) close(); });
+
+  // Say what a period backup will do before it is restored.
+  var file = document.getElementById("r-file"), note = document.getElementById("r-period-note");
+  if (file && note && window.FileReader) {
+    file.addEventListener("change", function () {
+      note.hidden = true;
+      var f = file.files && file.files[0];
+      if (!f) return;
+      var reader = new FileReader();
+      reader.onload = function () {
+        var data;
+        try { data = JSON.parse(reader.result); } catch (e) { return; }
+        if (!data || typeof data !== "object") return;
+        if (data.scope && data.scope.label) {
+          note.textContent = "This backup only holds " + data.scope.label + ". Restoring it replaces " +
+            data.scope.label + "’s entries and calendar bookings; everything else stays as it is.";
+          note.hidden = false;
+        } else if (data.period) {
+          note.textContent = "This backup only holds " + data.period + ". Every entry, partner, watchman, " +
+            "booking and payment is replaced by it, so entries outside " + data.period +
+            " will be gone. Download a full backup first if you might need them.";
+          note.hidden = false;
+        }
+      };
+      reader.readAsText(f);
+    });
+  }
 })();
 
 
@@ -331,7 +358,14 @@
     var opener = e.target.closest("[data-open-modal]");
     if (opener) {
       var m = document.getElementById(opener.getAttribute("data-open-modal"));
-      if (m) { m.dispatchEvent(new CustomEvent("bails:open")); open(m); }
+      var from = opener.closest("dialog");
+      if (m) {
+        if (from && from !== m) {
+          close(from);
+          if (window.BailsCopyPeriod) window.BailsCopyPeriod(from, m);
+        }
+        m.dispatchEvent(new CustomEvent("bails:open")); open(m);
+      }
       return;
     }
     var closer = e.target.closest("[data-close-modal]");
@@ -346,32 +380,135 @@
   window.BailsModal = { open: open, close: close };
 })();
 
-/* Period picker inside the Export / Send-mail dialogs: show only the inputs
-   the chosen period needs, and disable the rest so they are not submitted. */
+/* Period picker inside the Export / Send-mail dialogs: Monthly / Quarterly /
+   Yearly / All, previous/next arrows, and a preview fetched from the server. */
 (function () {
   "use strict";
-  function sync(picker) {
-    var checked = picker.querySelector('input[name="period"]:checked');
-    var kind = checked ? checked.value : "month";
-    picker.querySelectorAll("[data-pp-show]").forEach(function (f) {
-      var on = f.getAttribute("data-pp-show").split(" ").indexOf(kind) >= 0;
-      f.hidden = !on;
-      f.querySelectorAll("input,select").forEach(function (i) { i.disabled = !on; });
-    });
+  var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  function q(picker, sel) { return picker.querySelector(sel); }
+  function state(picker) {
+    var m = (q(picker, "[data-pp-month]").value || "").split("-");
+    return {
+      kind: q(picker, "[data-pp-kind]").value || "month",
+      mYear: parseInt(m[0], 10) || new Date().getFullYear(),
+      month: parseInt(m[1], 10) || (new Date().getMonth() + 1),
+      year: parseInt(q(picker, "[data-pp-year]").value, 10) || new Date().getFullYear(),
+      quarter: parseInt(q(picker, "[data-pp-quarter]").value, 10) || 1
+    };
+  }
+  function save(picker, st) {
+    q(picker, "[data-pp-kind]").value = st.kind;
+    q(picker, "[data-pp-month]").value = st.mYear + "-" + (st.month < 10 ? "0" : "") + st.month;
+    q(picker, "[data-pp-year]").value = st.year;
+    q(picker, "[data-pp-quarter]").value = st.quarter;
+  }
+  function label(st) {
+    if (st.kind === "month") return MONTHS[st.month - 1] + " " + st.mYear;
+    if (st.kind === "quarter") {
+      var f = 3 * (st.quarter - 1);
+      return "Q" + st.quarter + " " + st.year + " (" + MONTHS[f] + "–" + MONTHS[f + 2] + ")";
+    }
+    if (st.kind === "year") return "Year " + st.year;
+    return "All time";
+  }
+  function query(picker) {
+    var st = state(picker), p = new URLSearchParams();
+    p.append("period", st.kind);
+    if (st.kind === "month") p.append("month", q(picker, "[data-pp-month]").value);
+    if (st.kind === "quarter" || st.kind === "year") p.append("year", st.year);
+    if (st.kind === "quarter") p.append("quarter", st.quarter);
+    return p;
+  }
+  function render(picker) {
+    var st = state(picker), form = picker.closest("form");
+    // Only the inputs this kind needs are submitted.
+    q(picker, "[data-pp-month]").disabled = st.kind !== "month";
+    q(picker, "[data-pp-year]").disabled = !(st.kind === "quarter" || st.kind === "year");
+    q(picker, "[data-pp-quarter]").disabled = st.kind !== "quarter";
+    picker.querySelectorAll("[data-pp-step]").forEach(function (b) { b.disabled = st.kind === "all"; });
+    picker.querySelectorAll('input[type="radio"]').forEach(function (r) { r.checked = r.value === st.kind; });
+    q(picker, "[data-pp-label]").textContent = label(st);
+    if (form) {
+      form.querySelectorAll("[data-pp-hide-all]").forEach(function (el) { el.hidden = st.kind === "all"; });
+      var bk = form.querySelector("[data-pv-backup]");
+      if (bk) bk.textContent = st.kind === "all" ? "Download full backup" : "Download backup · " + label(st);
+    }
+    preview(picker);
     picker.dispatchEvent(new CustomEvent("bails:period", { bubbles: true }));
   }
+  var seq = 0;
+  function preview(picker) {
+    var url = picker.getAttribute("data-preview-url"), mine = ++seq, form = picker.closest("form");
+    if (!url) return;
+    fetch(url + "?" + query(picker).toString(), { credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function (d) {
+        if (mine !== seq) return;
+        q(picker, "[data-pp-label]").textContent = d.label;
+        ["opening", "income", "expense", "closing"].forEach(function (k) {
+          var el = picker.querySelector('[data-pv="' + k + '"]'); if (el) el.textContent = d[k];
+        });
+        var c = picker.querySelector('[data-pv="count"]');
+        if (c) c.textContent = d.count + (d.count === 1 ? " entry" : " entries") + " in " + d.label;
+        if (form) {
+          var cal = form.querySelector('[data-pv="calendar"]');
+          if (cal) cal.textContent = d.days_blocked ? d.days_blocked + " day(s) with bookings, " +
+            d.full_days + " full day(s), " + d.blocked_slots + " slot(s) blocked." : "Nothing blocked in " + d.label + ".";
+          form.querySelectorAll("[data-pv-file]").forEach(function (el) {
+            el.textContent = (d.files || {})[el.getAttribute("data-pv-file")] || "";
+          });
+        }
+      })
+      .catch(function () {});
+  }
+  function step(picker, dir) {
+    var st = state(picker);
+    if (st.kind === "month") {
+      st.month += dir;
+      if (st.month < 1) { st.month = 12; st.mYear -= 1; }
+      if (st.month > 12) { st.month = 1; st.mYear += 1; }
+    } else if (st.kind === "quarter") {
+      st.quarter += dir;
+      if (st.quarter < 1) { st.quarter = 4; st.year -= 1; }
+      if (st.quarter > 4) { st.quarter = 1; st.year += 1; }
+    } else if (st.kind === "year") {
+      st.year += dir;
+    }
+    save(picker, st); render(picker);
+  }
+  function setKind(picker, kind) {
+    var st = state(picker);
+    // Keep the same point in time when switching between kinds.
+    if (st.kind === "month" && kind !== "month") { st.year = st.mYear; st.quarter = Math.floor((st.month - 1) / 3) + 1; }
+    if (st.kind !== "month" && kind === "month" && st.kind !== "all") {
+      st.mYear = st.year; st.month = st.kind === "quarter" ? 3 * st.quarter : (st.year === new Date().getFullYear() ? new Date().getMonth() + 1 : 12);
+    }
+    st.kind = kind; save(picker, st); render(picker);
+  }
   document.querySelectorAll("[data-period-picker]").forEach(function (p) {
-    sync(p);
-    p.addEventListener("change", function () { sync(p); });
+    p.addEventListener("change", function (e) {
+      if (e.target.type === "radio") setKind(p, e.target.value);
+    });
+    p.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-pp-step]");
+      if (b) step(p, parseInt(b.getAttribute("data-pp-step"), 10));
+    });
+    var dialog = p.closest("dialog");
+    if (dialog) dialog.addEventListener("bails:open", function () { render(p); });
+    render(p);
   });
   window.BailsPeriodQuery = function (form) {
-    var q = new URLSearchParams();
-    form.querySelectorAll("[data-period-picker] input, [data-period-picker] select").forEach(function (i) {
-      if (i.disabled || !i.name) return;
-      if (i.type === "radio" && !i.checked) return;
-      q.append(i.name, i.value);
+    var p = form.querySelector("[data-period-picker]");
+    return p ? query(p) : new URLSearchParams();
+  };
+  // Carry the chosen period from one dialog's picker into another's.
+  window.BailsCopyPeriod = function (from, to) {
+    var a = from && from.querySelector("[data-period-picker]"), b = to && to.querySelector("[data-period-picker]");
+    if (!a || !b) return;
+    ["kind", "month", "year", "quarter"].forEach(function (k) {
+      b.querySelector("[data-pp-" + k + "]").value = a.querySelector("[data-pp-" + k + "]").value;
     });
-    return q;
+    render(b);
   };
 })();
 
@@ -383,7 +520,10 @@
   if (!modal || !form) return;
   var to = document.getElementById("m-to"), subject = document.getElementById("m-subject");
   var body = document.getElementById("m-body"), attach = document.getElementById("m-attach");
-  var seq = 0;
+  var seq = 0, defaults = [];
+  form.querySelector("[data-mail-defaults]").addEventListener("click", function () {
+    if (defaults.length) to.value = defaults.join("; ");
+  });
 
   function refresh(fillRecipients) {
     var q = window.BailsPeriodQuery(form), mine = ++seq;
@@ -395,6 +535,7 @@
         subject.value = d.subject; body.value = d.body;
         attach.textContent = "Attachment: " + d.filename;
         if (fillRecipients || !to.value.trim()) to.value = (d.recipients || []).join("; ");
+        defaults = d.defaults || defaults;
       })
       .catch(function () { attach.textContent = "Could not prepare the draft — check you are still signed in."; });
   }
@@ -429,17 +570,16 @@
       card.querySelectorAll("[data-view-pane]").forEach(function (p) {
         p.hidden = p.getAttribute("data-view-pane") !== view;
       });
-      card.querySelectorAll("[data-view]").forEach(function (b) {
-        b.setAttribute("aria-pressed", b.getAttribute("data-view") === view ? "true" : "false");
-      });
+      var sw = card.querySelector("[data-view-switch]");
+      if (sw) sw.textContent = sw.getAttribute("data-label-" + view);
+      current = view;
       try { localStorage.setItem(key, view); } catch (e) {}
     }
-    var saved = null;
+    var current = "graph", saved = null;
     try { saved = localStorage.getItem(key); } catch (e) {}
     show(saved === "table" ? "table" : "graph");
     card.addEventListener("click", function (e) {
-      var b = e.target.closest("[data-view]");
-      if (b) show(b.getAttribute("data-view"));
+      if (e.target.closest("[data-view-switch]")) show(current === "graph" ? "table" : "graph");
     });
   });
 })();
@@ -455,7 +595,9 @@
   document.addEventListener("click", function (e) {
     var chip = e.target.closest("[data-edit-booking]");
     if (!chip) return;
-    e.stopPropagation(); // don't also open the day's "Block a date" dialog
+    e.stopPropagation(); // don't also open the day sheet underneath
+    var host = chip.closest("dialog");
+    if (host && host !== modal) window.BailsModal.close(host);
     var d = chip.dataset;
     form.setAttribute("action", base + d.id + "/edit");
     unblock.setAttribute("formaction", base + d.id + "/delete");
@@ -485,26 +627,154 @@
     }
     return (neg ? "-" : "") + cur + s;
   };
+  var lease = parseFloat(form.getAttribute("data-lease")) || 0;
   function recalc() {
-    var total = 0, shareTotal = 0;
+    var total = 0, shareTotal = 0, leaseTotal = 0;
     form.querySelectorAll("[data-partner-row]").forEach(function (row) {
       var eq = parseFloat(row.querySelector("[data-equity]").value) || 0;
       var on = row.querySelector("[data-active]").checked;
       var share = on ? net * eq / 100 : 0;
       var cell = row.querySelector("[data-share]");
-      cell.textContent = on ? inr(share) : "—";
+      cell.textContent = on ? inr(share) : "Inactive";
       cell.classList.toggle("v-neg", share < 0);
+      cell.classList.toggle("muted", !on);
+      var split = lease * eq / 100, paid = parseFloat(row.getAttribute("data-paid")) || 0;
+      row.querySelector("[data-lease-split]").textContent = inr(split);
+      var left = row.querySelector("[data-lease-left]");
+      if (left) left.textContent = inr(split - paid) + " left";
       row.classList.toggle("row--muted", !on);
       if (on) { total += eq; shareTotal += share; }
+      leaseTotal += split;
     });
     var t = Math.round(total * 100) / 100;
     form.querySelector("[data-equity-total]").textContent = t.toFixed(2) + "%";
+    form.querySelector("[data-equity-total]").classList.toggle("v-warn", t !== 100);
     form.querySelector("[data-share-total]").textContent = inr(shareTotal);
+    form.querySelector("[data-lease-total]").textContent = inr(leaseTotal);
     var note = form.querySelector("[data-equity-note]");
     note.textContent = t === 100 ? "Balanced" : "Should total 100% (" + (t > 100 ? "+" : "") + (t - 100).toFixed(2) + "%)";
-    note.className = "small " + (t === 100 ? "v-pos" : "v-neg");
+    note.className = "small " + (t === 100 ? "v-pos" : "v-warn");
   }
   form.addEventListener("input", recalc);
   form.addEventListener("change", recalc);
   recalc();
+})();
+
+/* Calendar day sheet: the day's blocks with Unblock / Edit, "Unblock the whole
+   day", and a "Just unblocked" list with Re-block (the re-entry). */
+(function () {
+  "use strict";
+  var modal = document.getElementById("dayModal");
+  if (!modal) return;
+  var read = function (id) {
+    var n = document.getElementById(id);
+    try { return n ? JSON.parse(n.textContent) : []; } catch (e) { return []; }
+  };
+  var all = read("calDay"), unblocked = read("calFreed");
+  var admin = modal.getAttribute("data-admin") === "1";
+  var csrf = modal.getAttribute("data-csrf"), month = modal.getAttribute("data-month");
+  var body = modal.querySelector("[data-day-body]"), title = document.getElementById("dayModalTitle");
+  var blockBtn = modal.querySelector("[data-day-block]");
+  var SLOTS = ["Full Day", "7:00 AM", "10:45 AM", "2:30 PM"];
+  var DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+  function el(tag, attrs, text) {
+    var n = document.createElement(tag);
+    Object.keys(attrs || {}).forEach(function (k) { n.setAttribute(k, attrs[k]); });
+    if (text != null) n.textContent = text;
+    return n;
+  }
+  function postForm(action, fields, button, confirmText) {
+    var f = el("form", { method: "post", action: action, style: "display:inline;margin:0" });
+    if (confirmText) f.setAttribute("data-confirm", confirmText);
+    var all = Object.assign({ csrf_token: csrf }, fields);
+    Object.keys(all).forEach(function (k) { f.appendChild(el("input", { type: "hidden", name: k, value: all[k] })); });
+    f.appendChild(button);
+    return f;
+  }
+  function label(iso) {
+    var p = iso.split("-"), d = new Date(+p[0], +p[1] - 1, +p[2]);
+    return DAYS[d.getDay()] + " " + (+p[2] < 10 ? "0" : "") + (+p[2]) + " " + MONTHS[+p[1] - 1] + " " + p[0];
+  }
+  function order(a, b) { return SLOTS.indexOf(a.slot) - SLOTS.indexOf(b.slot); }
+
+  function show(day) {
+    var next = location.pathname + "?month=" + encodeURIComponent(month) + "&day=" + day;
+    var items = all.filter(function (b) { return b.date === day; }).sort(order);
+    var gone = unblocked.filter(function (u) { return u.date === day; }).sort(order);
+    title.textContent = label(day);
+    body.textContent = "";
+
+    var taken = items.map(function (b) { return b.slot; });
+    var whole = taken.indexOf("Full Day") >= 0 || ["7:00 AM", "10:45 AM", "2:30 PM"].every(function (s) { return taken.indexOf(s) >= 0; });
+    var free = whole ? [] : ["7:00 AM", "10:45 AM", "2:30 PM"].filter(function (s) { return taken.indexOf(s) < 0; });
+    body.appendChild(el("p", { class: "small muted", style: "margin:0 0 .7rem" },
+      items.length ? (whole ? "Fully blocked." : "Free: " + free.join(", ") + ".") : "All slots are free."));
+
+    if (items.length) {
+      var list = el("ul", { class: "day-list" });
+      items.forEach(function (b) {
+        var li = el("li");
+        var info = el("div", { class: "day-list__info" });
+        info.appendChild(el("span", { class: "tag" + (b.slot === "Full Day" ? " tag--debit" : "") }, b.slot));
+        var who = [b.by, b.note].filter(Boolean).join(" · ");
+        if (who) info.appendChild(el("span", { class: "small" }, " " + who));
+        li.appendChild(info);
+        if (admin) {
+          var acts = el("div", { class: "day-list__acts" });
+          var edit = el("button", { type: "button", class: "btn btn--sm btn--ghost", "data-edit-booking": "",
+            "data-id": b.id, "data-date": b.date, "data-slot": b.slot, "data-by": b.by, "data-note": b.note }, "Edit");
+          acts.appendChild(edit);
+          acts.appendChild(postForm(modal.getAttribute("data-delete-base") + b.id + "/delete", { next: next },
+            el("button", { type: "submit", class: "btn btn--sm btn--danger" }, "Unblock")));
+          li.appendChild(acts);
+        }
+        list.appendChild(li);
+      });
+      body.appendChild(list);
+      if (admin && items.length >= 2) {
+        body.appendChild(postForm(modal.getAttribute("data-day-unblock-url"), { booking_date: day, next: next },
+          el("button", { type: "submit", class: "btn btn--sm btn--danger", style: "margin-top:.6rem" }, "Unblock the whole day"),
+          "Unblock all " + items.length + " blocks on " + label(day) + "?"));
+      }
+    }
+
+    if (admin && gone.length) {
+      body.appendChild(el("h3", { class: "day-sub" }, "Just unblocked"));
+      var undo = el("ul", { class: "day-list" });
+      gone.forEach(function (u) {
+        var li = el("li");
+        var info = el("div", { class: "day-list__info" });
+        info.appendChild(el("span", { class: "tag tag--muted" }, u.slot));
+        var who = [u.by, u.note].filter(Boolean).join(" · ");
+        if (who) info.appendChild(el("span", { class: "small muted" }, " " + who));
+        li.appendChild(info);
+        li.appendChild(postForm(modal.getAttribute("data-block-url"),
+          { booking_date: u.date, slot: u.slot, booked_by: u.by, note: u.note, reblock: "1", next: next },
+          el("button", { type: "submit", class: "btn btn--sm" }, "Re-block")));
+        undo.appendChild(li);
+      });
+      body.appendChild(undo);
+    }
+
+    if (blockBtn) {
+      blockBtn.hidden = whole;
+      blockBtn.setAttribute("data-open-block", "");
+      blockBtn.setAttribute("data-date", day);
+    }
+    window.BailsModal.open(modal);
+  }
+
+  document.addEventListener("click", function (e) {
+    if (e.target.closest("[data-day-block]")) { window.BailsModal.close(modal); return; }
+    var cell = e.target.closest("[data-open-day]");
+    if (cell) show(cell.getAttribute("data-date"));
+  });
+  document.addEventListener("keydown", function (e) {
+    var cell = e.target.closest && e.target.closest("[data-open-day]");
+    if (cell && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); show(cell.getAttribute("data-date")); }
+  });
+  var wanted = new URLSearchParams(location.search).get("day");
+  if (wanted && /^\d{4}-\d{2}-\d{2}$/.test(wanted)) show(wanted);
 })();

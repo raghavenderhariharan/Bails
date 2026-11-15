@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block title %}Revenue forecast{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Revenue forecast</h1>
+    <div class="page-head__sub">Refitted from the whole ledger every time &middot; {{ fc.method }}</div>
+  </div>
+</div>
+
+<section class="filters" aria-label="Forecast options">
+  <div class="filters__row">
+    <div class="field">
+      <label id="fy-years">Years ahead</label>
+      <div class="seg" role="group" aria-labelledby="fy-years">
+        {% for y in years_choices %}
+          <a href="{{ url_for('revenue_forecast', years=y, basis='fy' if fiscal else 'cal') }}"
+             aria-current="{{ 'true' if y == years else 'false' }}">{{ y }}</a>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="field">
+      <label id="fy-basis">Year</label>
+      <div class="seg" role="group" aria-labelledby="fy-basis">
+        <a href="{{ url_for('revenue_forecast', years=years, basis='fy') }}" aria-current="{{ 'true' if fiscal else 'false' }}">Financial year (Apr&ndash;Mar)</a>
+        <a href="{{ url_for('revenue_forecast', years=years, basis='cal') }}" aria-current="{{ 'false' if fiscal else 'true' }}">Calendar year</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+{% set ny = fc.next_year %}
+{% if ny %}
+<div class="grid grid--kpi" style="margin-bottom:1rem">
+  <div class="kpi kpi--credit">
+    <div class="kpi__label">Income &middot; {{ ny.label }}</div>
+    <div class="kpi__value kpi__value--credit">{{ ny.income | rupees }}</div>
+    <div class="kpi__meta">{% if ny.yoy is not none %}{{ '+' if ny.yoy >= 0 }}{{ (ny.yoy * 100) | round(1) }}% year on year{% else %}{{ ny.basis_label }}{% endif %}</div>
+  </div>
+  <div class="kpi kpi--debit">
+    <div class="kpi__label">Expenses &middot; {{ ny.label }}</div>
+    <div class="kpi__value kpi__value--debit">{{ ny.expenses | rupees }}</div>
+    <div class="kpi__meta">Running {{ ny.running | rupees }} + rent {{ ny.rent | rupees }}</div>
+  </div>
+  <div class="kpi kpi--net">
+    <div class="kpi__label">Net &middot; {{ ny.label }}</div>
+    <div class="kpi__value {{ 'v-neg' if ny.net < 0 else '' }}">{{ ny.net | rupees }}</div>
+    <div class="kpi__meta">80% range {{ ny.net_low | rupees }} to {{ ny.net_high | rupees }}</div>
+  </div>
+</div>
+{% endif %}
+
+<div class="card" style="margin-bottom:1rem">
+  <div class="card__head">
+    <h2>Monthly income and expenses</h2>
+    <span class="spacer"></span>
+    <div class="legend">
+      <span class="legend__item"><span class="legend__swatch" style="background:var(--credit)"></span>Income</span>
+      <span class="legend__item"><span class="legend__swatch" style="background:var(--debit)"></span>Expenses incl. rent</span>
+      <span class="legend__item small muted">Solid = actual · dashed = forecast · shaded = income 80% range</span>
+    </div>
+  </div>
+  <div class="card__body">
+    <div class="chart-wrap" style="height:300px">
+      <canvas id="forecastChart" height="300" role="img"
+              aria-label="Monthly income and expenses, actual then forecast, with an 80% range for income."></canvas>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:1rem">
+  <div class="card__head"><h2>Year on year</h2></div>
+  <div class="card__body card__body--flush">
+    <div class="table-scroll">
+      <table class="ledger">
+        <thead><tr><th>Year</th><th class="num">Income</th><th class="num">Running</th><th class="num">Rent</th><th class="num">Net</th></tr></thead>
+        <tbody>
+          {% for y in fc.years %}
+            <tr>
+              <td class="nowrap"><strong>{{ y.label }}</strong>
+                <div class="small muted">{{ y.basis_label }}{% if y.yoy is not none %} · {{ '+' if y.yoy >= 0 }}{{ (y.yoy * 100) | round(1) }}% YoY{% endif %}</div></td>
+              <td class="num">{{ y.income | rupees }}</td>
+              <td class="num">{{ y.running | rupees }}</td>
+              <td class="num">{% if y.rent %}{{ y.rent | rupees }}{% else %}&mdash;{% endif %}</td>
+              <td class="num {{ 'v-neg' if y.net < 0 else '' }}"><strong>{{ y.net | rupees }}</strong></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:1rem">
+  <div class="card__head"><h2>Month by month</h2></div>
+  <div class="card__body">
+    {% for y in fc.years %}
+      <details class="fc-year" {{ 'open' if y is sameas fc.current_year }}>
+        <summary><strong>{{ y.label }}</strong> <span class="small muted">{{ y.basis_label }}</span></summary>
+        <div class="table-scroll">
+          <table class="ledger">
+            <thead><tr><th>Month</th><th class="num">Income</th><th class="num">Running</th><th class="num">Rent</th><th class="num">Net</th></tr></thead>
+            <tbody>
+              {% for m in y.months %}
+                <tr class="{{ 'row--muted' if m.status == 'forecast' else '' }}">
+                  <td class="nowrap">{% if m.status == 'actual' %}&#10003; {% endif %}{{ m.label }}{% if m.status == 'current' %} <span class="small muted">(so far + forecast)</span>{% endif %}</td>
+                  <td class="num">{{ m.income | rupees }}</td>
+                  <td class="num">{{ m.running | rupees }}</td>
+                  <td class="num">{% if m.rent %}{{ m.rent | rupees }}{% else %}&mdash;{% endif %}</td>
+                  <td class="num {{ 'v-neg' if m.net < 0 else '' }}">{{ m.net | rupees }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1rem;margin-bottom:1rem">
+  <div class="card">
+    <div class="card__head"><h2>Projected monthly expenses</h2></div>
+    <div class="card__body card__body--flush">
+      <table class="ledger">
+        <tbody>
+          {% for e in fc.projected_expenses %}
+            <tr><td>{{ e.category }}</td><td class="num">{{ e.monthly | rupees }}</td></tr>
+          {% endfor %}
+          <tr><td><strong>Running costs</strong></td><td class="num"><strong>{{ fc.running_next | rupees }}</strong></td></tr>
+          {% if fc.rent.monthly %}
+            <tr><td>Ground rent (from {{ fc.rent.start.strftime('%b %Y') }})</td><td class="num">{{ fc.rent.monthly | rupees }} / mo</td></tr>
+            <tr><td><strong>Total once rent starts</strong></td><td class="num"><strong>{{ fc.total_with_rent | rupees }}</strong></td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card__head"><h2>Known future costs</h2></div>
+    <div class="card__body">
+      <p style="margin-top:0">{% if fc.rent.monthly %}Ground rent <strong>{{ fc.rent.monthly | rupees }} / month</strong> from <strong>{{ fc.rent.start.strftime('%b %Y') }}</strong>.{% else %}No ground rent in the forecast.{% endif %}</p>
+      {% if is_admin %}
+        <form method="post" action="{{ url_for('forecast_rent_save') }}" class="add-row">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="next" value="{{ request.full_path }}">
+          <div class="field" style="max-width:170px">
+            <label for="fr-amount">Rent per month</label>
+            <input type="number" id="fr-amount" name="rent_monthly" min="0" step="1" class="num" value="{{ fc.rent.monthly | int }}">
+          </div>
+          <div class="field" style="max-width:180px">
+            <label for="fr-start">From</label>
+            <input type="month" id="fr-start" name="rent_start" value="{{ fc.rent.start.strftime('%Y-%m') }}" required>
+          </div>
+          <button class="btn" type="submit">Change rent</button>
+        </form>
+        <p class="small muted" style="margin-bottom:0">Set 0 for no rent. Recorded &ldquo;Rent / lease&rdquo; entries from the start month count as this rent, not twice.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card__head"><h2>How it&rsquo;s calculated</h2></div>
+  <div class="card__body">
+    <p style="margin-top:0"><strong>{{ fc.method }}.</strong> Income and running costs are fitted separately on complete months only; the current month is still in progress.</p>
+    <ul style="margin-bottom:0">
+      {% for n in fc.notes %}<li>{{ n }}</li>{% endfor %}
+    </ul>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" defer></script>
+<script id="forecastData" type="application/json">{{ chart | tojson }}</script>
+<script src="{{ url_for('static', filename='js/forecast.js') }}" defer></script>
+{% endblock %}

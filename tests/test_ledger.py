@@ -287,19 +287,19 @@ def test_pages_render(client, path, needle):
 def test_dashboard_kpis_follow_the_filter(client):
     login(client)
     october = client.get("/?period=month&month=2026-10").get_data(as_text=True)
-    assert kpi(october, "Income · Credit") == "51,000"
-    assert kpi(october, "Expenses · Debit") == "7,000"
-    assert kpi(october, "Net profit") == "44,000"
+    assert kpi(october, "kpi kpi--credit") == "51,000"
+    assert kpi(october, "kpi kpi--debit") == "7,000"
+    assert kpi(october, "Net Profit (") == "44,000"
 
     november = client.get("/?period=month&month=2026-11").get_data(as_text=True)
-    assert kpi(november, "Income · Credit") == "0"
-    assert kpi(november, "Net profit") == "0"
+    assert kpi(november, "kpi kpi--credit") == "0"
+    assert kpi(november, "Net Profit (") == "0"
     # Balance carried forward is still cumulative.
     assert kpi(november, "Closing balance") == "44,000"
 
     partial = client.get("/?period=custom&from=2026-10-01&to=2026-10-03").get_data(as_text=True)
-    assert kpi(partial, "Income · Credit") == "34,000"
-    assert kpi(partial, "Expenses · Debit") == "0"
+    assert kpi(partial, "kpi kpi--credit") == "34,000"
+    assert kpi(partial, "kpi kpi--debit") == "0"
 
 
 def test_latest_entries_card_respects_the_filter(client):
@@ -322,7 +322,7 @@ def test_csrf_is_required_for_writes(client):
     response = client.post("/transactions/new", data={
         "kind": "income", "txn_date": "2026-10-06", "category": "Tournament", "amount": "777"})
     assert response.status_code == 400
-    assert kpi(client.get("/").get_data(as_text=True), "Net profit") == "44,000"
+    assert kpi(client.get("/").get_data(as_text=True), "Net Profit (") == "44,000"
 
 
 def test_create_edit_delete_roundtrip(client):
@@ -350,7 +350,7 @@ def test_create_edit_delete_roundtrip(client):
     client.post(f"/transactions/{txn_id}/delete",
                 data={"csrf_token": _csrf(page), "next": "/income"}, follow_redirects=True)
     assert "Night league final" not in client.get("/income").get_data(as_text=True)
-    assert kpi(client.get("/").get_data(as_text=True), "Net profit") == "44,000"
+    assert kpi(client.get("/").get_data(as_text=True), "Net Profit (") == "44,000"
 
 
 @pytest.mark.parametrize("payload", [
@@ -368,7 +368,7 @@ def test_invalid_entries_are_rejected(client, payload):
     page = client.get("/income").get_data(as_text=True)
     data = dict(payload, csrf_token=_csrf(page), next="/income")
     client.post("/transactions/new", data=data, follow_redirects=True)
-    assert kpi(client.get("/").get_data(as_text=True), "Net profit") == "44,000"
+    assert kpi(client.get("/").get_data(as_text=True), "Net Profit (") == "44,000"
 
 
 def test_amount_accepts_commas_and_currency_symbol(client):
@@ -378,7 +378,7 @@ def test_amount_accepts_commas_and_currency_symbol(client):
         "csrf_token": _csrf(page), "kind": "income", "txn_date": "2026-10-07",
         "category": "Tournament", "description": "Comma test", "amount": "₹1,500",
         "next": "/income"}, follow_redirects=True)
-    assert kpi(client.get("/").get_data(as_text=True), "Net profit") == "45,500"
+    assert kpi(client.get("/").get_data(as_text=True), "Net Profit (") == "45,500"
 
 
 def test_editing_a_missing_entry_is_404(client):
@@ -587,6 +587,12 @@ def test_dashboard_latest_entries_stays_newest_first(client):
     assert numbers == sorted(numbers, reverse=True), f"not newest-first: {numbers}"
 
 
-def test_csv_export_route_is_gone(client):
+def test_csv_export_escapes_formulas(client):
     login(client)
-    assert client.get("/export.csv").status_code == 404
+    page = client.get("/").get_data(as_text=True)
+    token = re.search(r'name="csrf_token" value="([^"]+)"', page).group(1)
+    client.post("/transactions/new", data={"csrf_token": token, "kind": "income", "txn_date": "2026-10-20",
+                                           "amount": "100", "category": "Tournament", "description": "=HYPERLINK(1)"})
+    body = client.get("/export.csv?period=month&month=2026-10").get_data(as_text=True)
+    assert body.startswith("\ufeffDate,Day,Type,Category,Description,Slot,Party,Income,Expense,Net,Running Balance,Notes,Watchman")
+    assert "'=HYPERLINK(1)" in body and ",Opening Balance," in body

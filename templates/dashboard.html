@@ -20,41 +20,14 @@
   </div>
 {% endif %}
 
+{% set net_name = net_label(period.kind, summary.net) %}
 <div class="grid grid--kpi" style="margin-bottom:1rem">
   <div class="kpi kpi--open">
     <div class="kpi__label">Opening balance</div>
     <div class="kpi__value {{ 'v-neg' if opening < 0 else '' }}">
       <span class="cur">{{ CURRENCY }}</span>{{ opening | money }}
     </div>
-    <div class="kpi__meta">{% if period.start %}Brought forward to {{ period.start.strftime('%d %b %Y') }}{% else %}Before the first entry{% endif %}</div>
-  </div>
-
-  <div class="kpi kpi--credit">
-    <div class="kpi__label">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" style="width:13px;height:13px"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
-      Income · Credit
-    </div>
-    <div class="kpi__value kpi__value--credit"><span class="cur">{{ CURRENCY }}</span>{{ summary.income | money }}</div>
-    <div class="kpi__meta">Money received this period</div>
-  </div>
-
-  <div class="kpi kpi--debit">
-    <div class="kpi__label">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" style="width:13px;height:13px"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
-      Expenses · Debit
-    </div>
-    <div class="kpi__value kpi__value--debit"><span class="cur">{{ CURRENCY }}</span>{{ summary.expense | money }}</div>
-    <div class="kpi__meta">Money paid out this period</div>
-  </div>
-
-  <div class="kpi kpi--net">
-    <div class="kpi__label">Net profit ({{ PERIOD_TAGS[period.kind] }})</div>
-    <div class="kpi__value {{ 'v-neg' if summary.net < 0 else '' }}">
-      <span class="cur">{{ CURRENCY }}</span>{{ summary.net | money }}
-    </div>
-    <div class="kpi__meta">
-      {% if summary.margin is not none %}{{ summary.margin }}% margin on income{% else %}No income recorded{% endif %}
-    </div>
+    <div class="kpi__meta">{% if period.start %}Brought forward to {{ period.start.strftime('%d %b') }}{% else %}Starting balance{% endif %}</div>
   </div>
 
   <div class="kpi kpi--bal">
@@ -62,9 +35,62 @@
     <div class="kpi__value {{ 'v-neg' if closing_balance < 0 else '' }}">
       <span class="cur">{{ CURRENCY }}</span>{{ closing_balance | money }}
     </div>
-    <div class="kpi__meta">Carried forward at {{ (period.end or now_date).strftime('%d %b %Y') }}</div>
+    <div class="kpi__meta">{% if period.end %}As of {{ period.end.strftime('%d %b %Y') }}{% else %}All entries{% endif %}</div>
+  </div>
+
+  <div class="kpi kpi--credit">
+    <div class="kpi__label">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" style="width:13px;height:13px"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+      Income
+    </div>
+    <div class="kpi__value kpi__value--credit"><span class="cur">{{ CURRENCY }}</span>{{ summary.income | money }}</div>
+    <div class="kpi__meta">Credit</div>
+  </div>
+
+  <div class="kpi kpi--debit">
+    <div class="kpi__label">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" style="width:13px;height:13px"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+      Expenses
+    </div>
+    <div class="kpi__value kpi__value--debit"><span class="cur">{{ CURRENCY }}</span>{{ summary.expense | money }}</div>
+    <div class="kpi__meta">Debit</div>
+  </div>
+
+  <div class="kpi kpi--net">
+    <div class="kpi__label">{{ net_name }}</div>
+    <div class="kpi__value {{ 'v-neg' if summary.net < 0 else '' }}">
+      <span class="cur">{{ CURRENCY }}</span>{{ summary.net | money }}
+    </div>
+    <div class="kpi__meta">
+      {% if summary.margin is not none %}{{ summary.margin }}% margin{% else %}No income{% endif %}
+    </div>
   </div>
 </div>
+
+{% if months | length > 1 %}
+<div class="card" style="margin-bottom:1rem">
+  <div class="card__head">
+    <h2>Month by month &middot; {{ period.label }}</h2>
+  </div>
+  <div class="card__body card__body--flush">
+    <div class="table-scroll">
+      <table class="ledger">
+        <thead><tr><th>Month</th><th class="num">Opening</th><th class="num">Net</th><th class="num">Closing</th></tr></thead>
+        <tbody>
+          {% for m in months %}
+            <tr>
+              <td class="nowrap">{{ m.label }}</td>
+              <td class="num {{ 'v-neg' if m.opening < 0 else '' }}">{{ m.opening | rupees }}</td>
+              <td class="num {{ 'v-pos' if m.net > 0 else ('v-neg' if m.net < 0 else 'muted') }}">{{ '+' if m.net > 0 else ('−' if m.net < 0 else '') }}{{ CURRENCY }}{{ (m.net | abs) | money }}</td>
+              <td class="num {{ 'v-neg' if m.closing < 0 else '' }}"><strong>{{ m.closing | rupees }}</strong></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 <div class="card" style="margin-bottom:1rem" data-view-toggle="trend">
   <div class="card__head">
@@ -75,10 +101,8 @@
       <span class="legend__item"><span class="legend__swatch" style="background:var(--debit)"></span>Expenses</span>
       <span class="legend__item"><span class="legend__swatch" style="background:var(--chart-net)"></span>Net</span>
     </div>
-    <div class="seg seg--sm" role="group" aria-label="Show as">
-      <button type="button" data-view="graph" aria-pressed="true">Graph</button>
-      <button type="button" data-view="table" aria-pressed="false">Table</button>
-    </div>
+    <button class="btn btn--sm btn--ghost" type="button" data-view-switch
+            data-label-graph="View as table" data-label-table="View as graph">View as table</button>
   </div>
   <div class="card__body" data-view-pane="graph">
     <div class="chart-wrap" style="height:300px">
@@ -90,16 +114,14 @@
   <div class="card__body card__body--flush" data-view-pane="table" hidden>
     <div class="table-scroll">
       <table class="ledger">
-        <thead><tr><th>Month</th><th class="num">Opening</th><th class="num">Income</th><th class="num">Expenses</th><th class="num">Net</th><th class="num">Closing</th></tr></thead>
+        <thead><tr><th>Month</th><th class="num">Income</th><th class="num">Expenses</th><th class="num">Net</th></tr></thead>
         <tbody>
           {% for m in trend %}
             <tr>
               <td class="nowrap">{{ m.full_label }}</td>
-              <td class="num muted {{ 'v-neg' if m.opening < 0 else '' }}">{{ m.opening | money }}</td>
               <td class="num">{{ m.income | money }}</td>
               <td class="num">{{ m.expense | money }}</td>
-              <td class="num {{ 'v-neg' if m.net < 0 else '' }}">{{ m.net | money }}</td>
-              <td class="num {{ 'v-neg' if m.closing < 0 else '' }}"><strong>{{ m.closing | money }}</strong></td>
+              <td class="num {{ 'v-neg' if m.net < 0 else '' }}"><strong>{{ m.net | money }}</strong></td>
             </tr>
           {% endfor %}
         </tbody>
@@ -107,6 +129,36 @@
     </div>
   </div>
 </div>
+
+{% if forecast and forecast.next_year %}
+{% set fy = forecast.next_year %}
+<div class="card" style="margin-bottom:1rem">
+  <div class="card__head">
+    <h2>Revenue forecast &middot; {{ fy.label }}</h2>
+    <span class="spacer"></span>
+    <a class="btn btn--sm btn--ghost" href="{{ url_for('revenue_forecast') }}">Open forecast</a>
+  </div>
+  <div class="card__body">
+    <div class="grid grid--kpi">
+      <div class="kpi kpi--credit">
+        <div class="kpi__label">Income</div>
+        <div class="kpi__value kpi__value--credit">{{ fy.income | rupees }}</div>
+        <div class="kpi__meta">{{ fy.basis_label }}</div>
+      </div>
+      <div class="kpi kpi--debit">
+        <div class="kpi__label">Expenses</div>
+        <div class="kpi__value kpi__value--debit">{{ fy.expenses | rupees }}</div>
+        <div class="kpi__meta">Running {{ fy.running | rupees }} + rent {{ fy.rent | rupees }}</div>
+      </div>
+      <div class="kpi kpi--net">
+        <div class="kpi__label">Net</div>
+        <div class="kpi__value {{ 'v-neg' if fy.net < 0 else '' }}">{{ fy.net | rupees }}</div>
+        <div class="kpi__meta">80% range {{ fy.net_low | rupees }} to {{ fy.net_high | rupees }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 <div class="card">
   <div class="card__head">

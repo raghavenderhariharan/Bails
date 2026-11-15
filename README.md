@@ -59,25 +59,33 @@ Other features:
   empty columns. The window stays put while you change the period filter, and
   only rolls forward once the ledger grows past 12 months.
 - **Add / edit / delete** entries from any tab through one dialog. Expense entries can only use expense categories, and vice versa.
-- **Excel export** of whatever period is on screen, laid out like your own
-  `BailsLedgerBook.xlsx`: a **Dashboard** sheet (income/expense/net tiles, the
-  12-month table, standing commitments), a **Transaction Ledger** sheet with the
-  same twelve columns and a running balance, a **Partner Profit** sheet, and a
-  **Ground Calendar** sheet (a day-by-slot grid of blocked days plus the full
-  booking list). The same workbook is what Send mail attaches and Save to Drive writes.
-  Rows read oldest-first, the way a ledger book does.
+- **Excel export** in the same coloured format as the iPhone app: a
+  **Dashboard** sheet (income/expense/net and opening/closing/entries cards,
+  month-by-month balances, income and expenses by category), a **Transaction
+  Ledger** sheet (thirteen columns including Watchman, with a running balance), a
+  **Partner Profit** sheet (inactive partners listed as Inactive) and a **Ground
+  Calendar** sheet. The same workbook is what Send mail attaches and Save to Drive
+  writes. Rows read oldest-first, the way a ledger book does.
 - **Ground Payment ledger (Admin only)** — tracks buying the ground from its
   previous owners: each seller's share % and closing amount vs what they have
   been paid, each current partner's share of the lease vs what they have
   contributed, and every payment. The summary tiles at the top are rolled up
   from this ledger, and payments are the single source of truth, so both
   sides always tally. Editable inline; totals recompute automatically.
-- **Export / Backup for any period** — the toolbar's **Export** dialog picks
-  Monthly, Quarterly, Yearly, All time or a custom range, then downloads the
-  Excel workbook (anyone) or a backup (Admin). A period backup holds just that
-  period's entries and calendar bookings, and restoring it replaces only that
-  period; **All time** is a full backup. Filenames carry the period and the
-  download date, e.g. `BailsLedgerBook-2026-Q4-2026-11-08.xlsx`.
+- **Export / Backup for any period** — the **Export** dialog picks Monthly,
+  Quarterly, Yearly or All with previous/next arrows and a preview of the
+  period's balances, then downloads the ledger (Excel or CSV), the calendar
+  (Excel or CSV) or, for Admin, a backup. Files are named like the app's:
+  `BailsLedger-Monthly-Oct-2026.xlsx`, `BailsCalendar-Quarterly-Q4-2026-Oct-Dec.csv`.
+  Backups use the app's format 8. A period backup holds that period's entries,
+  bookings and ground payments with the balance brought forward; restoring one
+  made here replaces only that period, while one made by the iPhone app (which
+  has no date range in it) replaces everything, and the Restore dialog says so
+  before you confirm.
+- **Revenue forecast** — next financial year's income, expenses (running costs
+  plus ₹60,000/month ground rent from Apr 2027, changeable by Admin) and net,
+  refitted from the whole ledger with exponential smoothing (Holt–Winters once
+  there are two years). Card on the dashboard, full page under **Forecast**.
 - **Send mail (Admin)** — emails the workbook for the chosen period. Subject and
   message are written from that period's figures (opening/closing balance,
   income, expenses, net and each partner's share) and stay editable; the

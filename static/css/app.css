@@ -250,7 +250,10 @@ a { color: var(--link); }
 .kpi--debit::before  { background: var(--debit); }
 .kpi--net::before    { background: var(--brand-navy); }
 .kpi--bal::before    { background: var(--brand-green); }
-.kpi--open::before   { background: var(--ink-muted); }
+.kpi--open::before   { background: var(--brand-green-dark); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .kpi--open::before { background: #7FD8A8; } }
+:root[data-theme="dark"] .kpi--open::before { background: #7FD8A8; }
+.kpi::before { width: 3px; }
 
 .kpi__label {
   font-size: .64rem; font-weight: 700; letter-spacing: .08em;
@@ -270,6 +273,7 @@ a { color: var(--link); }
 .kpi__value--debit  { color: var(--debit); }
 .v-neg { color: var(--debit); }
 .v-pos { color: var(--credit); }
+.v-warn { color: #C26A00; font-weight: 600; }
 
 /* ============================== Filters ================================= */
 
@@ -713,3 +717,31 @@ button.cal__chip:hover { filter: brightness(.95); outline: 1px solid var(--line-
 [hidden] { display: none !important; }
 
 .page-head__actions { display: flex; gap: .5rem; flex-wrap: wrap; margin-left: auto; }
+
+/* Export / Send-mail period picker */
+.pp { display: grid; gap: .7rem; }
+.pp__nav { display: flex; align-items: center; gap: .6rem; }
+.pp__label { flex: 1; text-align: center; font-size: 1rem; }
+.pp__preview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .5rem; margin: 0; }
+.pp__preview > div { background: var(--surface-2, var(--surface)); border: 1px solid var(--line); border-radius: 8px; padding: .45rem .6rem; min-width: 0; }
+.pp__preview dt { font-size: .62rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-muted); }
+.pp__preview dd { margin: .15rem 0 0; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+@media (max-width: 520px) { .pp__preview { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.xsec { border-top: 1px solid var(--line); margin-top: 1rem; padding-top: .8rem; }
+.xsec h3 { margin: 0 0 .2rem; font-size: .95rem; }
+.xsec p { margin: 0 0 .55rem; }
+.xsec__btns { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+
+/* Calendar day sheet */
+.day-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .45rem; }
+.day-list li { display: flex; align-items: center; gap: .6rem; justify-content: space-between;
+  border: 1px solid var(--line); border-radius: 8px; padding: .45rem .6rem; flex-wrap: wrap; }
+.day-list__info { min-width: 0; overflow-wrap: anywhere; }
+.day-list__acts { display: flex; gap: .4rem; }
+.day-sub { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-muted); margin: 1rem 0 .45rem; }
+.tag--muted { opacity: .6; text-decoration: line-through; }
+
+/* Forecast: one expandable group per year */
+.fc-year { border: 1px solid var(--line); border-radius: 8px; margin-bottom: .55rem; }
+.fc-year > summary { cursor: pointer; padding: .55rem .75rem; }
+.fc-year[open] > summary { border-bottom: 1px solid var(--line); }

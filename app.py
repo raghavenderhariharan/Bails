@@ -24,10 +24,10 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from config import Config
 from finance import (
-    MONTH_NAMES, apply_period, balance_as_of, category_breakdown, data_bounds, fmt_money,
-    LEASE_VALUE_KEY, booking_summary, ground_settlement, lease_value,
-    opening_balance, parse_period, partner_shares, period_opening, q2, totals, trend_window,
-    watchman_settlement,
+    MONTH_NAMES, PERIOD_TAGS, apply_period, balance_as_of, category_breakdown, data_bounds, file_label, file_stem,
+    fmt_money, LEASE_VALUE_KEY, booking_summary, ground_settlement, lease_value, net_label,
+    opening_balance, parse_period, partner_shares, period_months, period_opening, q2, totals,
+    trend_window, watchman_settlement,
 )
 from models import (
     EXPENSE, EXPENSE_CATEGORIES, INCOME, INCOME_CATEGORIES, KINDS,
@@ -443,6 +443,13 @@ def _register_filters(app: Flask) -> None:
     app.jinja_env.filters["money"] = fmt_money
 
 
+    @app.template_filter("rupees")
+    def _rupees(value):
+        """Whole rupees with the sign before the symbol: −₹3,58,596."""
+        amount = q2(value).quantize(Decimal("1"))
+        text = app.config["CURRENCY_SYMBOL"] + fmt_money(abs(amount))
+        return ("\u2212" + text) if amount < 0 else text
+
     @app.template_filter("signed_money")
     def _signed_money(value):
         amount = q2(value)
@@ -481,6 +488,7 @@ def _register_filters(app: Flask) -> None:
             "current_year": date.today().year,
             "MONTH_NAMES": MONTH_NAMES,
             "PERIOD_TAGS": PERIOD_TAGS,
+            "net_label": net_label,
         }
 
 
@@ -500,27 +508,9 @@ def _filter_context(period):
     return {"period": period, "year_choices": _year_choices()}
 
 
-# Shown after a figure to say what span it covers: "Net profit (Quarterly)".
-PERIOD_TAGS = {"month": "Monthly", "quarter": "Quarterly", "year": "Yearly",
-               "all": "All time", "custom": "Custom range"}
-
-
-def _period_slug(period) -> str:
-    """A filename-safe tag for a period: 2026-10, 2026-Q4, 2026, 2026-10-01_2026-10-15, all."""
-    if period.kind == "month":
-        return period.params["month"]
-    if period.kind == "quarter":
-        return f"{period.params['year']}-Q{period.params['quarter']}"
-    if period.kind == "year":
-        return period.params["year"]
-    if period.kind == "custom" and (period.start or period.end):
-        return f"{period.start or 'start'}_{period.end or 'today'}"
-    return "all"
-
-
-def _export_filename(period) -> str:
-    # The period it covers, then the day it was taken (so repeat downloads sort).
-    return f"BailsLedgerBook-{_period_slug(period)}-{date.today().isoformat()}.xlsx"
+def _export_filename(period, prefix: str = "BailsLedger", ext: str = "xlsx") -> str:
+    """BailsLedger-Monthly-Oct-2026.xlsx, BailsCalendar-Quarterly-Q4-2026-Oct-Dec.csv."""
+    return f"{file_stem(prefix, period)}.{ext}"
 
 
 def _register_routes(app: Flask) -> None:
@@ -619,8 +609,20 @@ def _register_routes(app: Flask) -> None:
             recent=recent,
             closing_balance=balance_as_of(period.end),
             opening=period_opening(period),
+            months=period_months(period),
+            forecast=_dashboard_forecast(),
             **_filter_context(period),
         )
+
+    def _dashboard_forecast():
+        """The next-year forecast for the dashboard card; never breaks the page."""
+        try:
+            from forecast import build_forecast
+
+            return build_forecast(years=1)
+        except Exception as exc:  # pragma: no cover - defensive
+            app.logger.warning("forecast failed: %s", exc)
+            return None
 
     # ---------------- ledger tabs ----------------
 
@@ -927,6 +929,9 @@ def _register_routes(app: Flask) -> None:
             prev_month=prev_month, next_month=next_month,
             this_month=date.today().strftime("%Y-%m"),
             bookings=bookings, full_days=full_days, blocked_slots=blocked_slots,
+            day_bookings=[{"id": b.id, "date": b.booking_date.isoformat(), "slot": b.slot,
+                           "by": b.booked_by or "", "note": b.note or ""} for b in bookings],
+            unblocked=session.get("unblocked", []) if is_admin() else [],
             booking_slots=BOOKING_SLOTS, full_day=FULL_DAY,
             weekday_names=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
             **_filter_context(period),
@@ -976,7 +981,8 @@ def _register_routes(app: Flask) -> None:
             db.session.rollback()
             flash("That slot was just blocked by someone else. Please refresh.", "error")
             return _safe_redirect(target, "booking_calendar")
-        flash(f"Blocked {', '.join(slots)} on {label}.", "success")
+        _forget_unblocked(when, slots)
+        flash(f"{'Re-blocked' if request.form.get('reblock') else 'Blocked'} {', '.join(slots)} on {label}.", "success")
         return _safe_redirect(target, "booking_calendar")
 
     @app.post("/calendar/<int:booking_id>/edit")
@@ -1024,6 +1030,19 @@ def _register_routes(app: Flask) -> None:
         flash(f"Updated: {slot} on {label}.", "success")
         return _safe_redirect(target, "booking_calendar")
 
+    def _remember_unblocked(bookings):
+        """Keep what was just unblocked so the day sheet can offer Re-block."""
+        kept = [u for u in session.get("unblocked", [])
+                if not any(u["date"] == b.booking_date.isoformat() and u["slot"] == b.slot for b in bookings)]
+        kept += [{"date": b.booking_date.isoformat(), "slot": b.slot,
+                  "by": b.booked_by or "", "note": b.note or ""} for b in bookings]
+        session["unblocked"] = kept[-12:]
+
+    def _forget_unblocked(when, slots):
+        if session.get("unblocked"):
+            session["unblocked"] = [u for u in session["unblocked"]
+                                    if not (u["date"] == when.isoformat() and u["slot"] in slots)]
+
     @app.post("/calendar/<int:booking_id>/delete")
     @admin_required
     def booking_delete(booking_id: int):
@@ -1031,10 +1050,91 @@ def _register_routes(app: Flask) -> None:
         if booking is None:
             abort(404)
         label = f"{booking.slot} on {booking.booking_date.strftime('%d %b %Y')}"
+        _remember_unblocked([booking])
         db.session.delete(booking)
         db.session.commit()
         flash(f"Unblocked {label}.", "success")
         return _safe_redirect(request.form.get("next"), "booking_calendar")
+
+    @app.post("/calendar/day/unblock")
+    @admin_required
+    def booking_day_unblock():
+        """Unblock every slot on one day."""
+        target = request.form.get("next")
+        try:
+            when = _parse_date(request.form.get("booking_date"))
+        except FormError as exc:
+            flash(str(exc), "error")
+            return _safe_redirect(target, "booking_calendar")
+        bookings = GroundBooking.query.filter_by(booking_date=when).all()
+        if not bookings:
+            flash(f"Nothing is blocked on {when.strftime('%d %b %Y')}.", "error")
+            return _safe_redirect(target, "booking_calendar")
+        _remember_unblocked(bookings)
+        for b in bookings:
+            db.session.delete(b)
+        db.session.commit()
+        flash(f"Unblocked the whole day: {when.strftime('%d %b %Y')} ({len(bookings)} block"
+              f"{'' if len(bookings) == 1 else 's'}).", "success")
+        return _safe_redirect(target, "booking_calendar")
+
+    # ---------------- revenue forecast ----------------
+
+    @app.get("/forecast")
+    @login_required
+    def revenue_forecast():
+        from forecast import YEARS_CHOICES, build_forecast
+
+        years = _safe_years(request.args.get("years"), YEARS_CHOICES)
+        fiscal = request.args.get("basis", "fy") != "cal"
+        result = build_forecast(years=years, fiscal=fiscal)
+        chart = {
+            "labels": [m["label"] for m in result["months"]],
+            "income": [float(m["income"]) for m in result["months"]],
+            "expenses": [float(m["expenses"]) for m in result["months"]],
+            "low": [float(m["income_low"]) for m in result["months"]],
+            "high": [float(m["income_high"]) for m in result["months"]],
+            "status": [m["status"] for m in result["months"]],
+            "rent_label": result["rent"]["start"].strftime("%b %Y") if result["rent"]["monthly"] else "",
+        }
+        return render_template(
+            "forecast.html", fc=result, chart=chart, years=years, fiscal=fiscal,
+            years_choices=YEARS_CHOICES,
+        )
+
+    def _safe_years(raw, choices):
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            return 3
+        return value if value in choices else 3
+
+    @app.post("/forecast/rent")
+    @admin_required
+    def forecast_rent_save():
+        from forecast import save_rent_settings
+
+        target = request.form.get("next")
+        try:
+            amount = Decimal((request.form.get("rent_monthly") or "0").replace(",", "").strip() or "0")
+        except (InvalidOperation, ValueError):
+            amount = Decimal("-1")
+        if not amount.is_finite() or amount < 0 or amount >= Decimal("100000000"):
+            flash("Rent must be a number of rupees (0 for no rent).", "error")
+            return _safe_redirect(target, "revenue_forecast")
+        raw = (request.form.get("rent_start") or "").strip()
+        try:
+            start = date(int(raw[:4]), int(raw[5:7]), 1)
+        except (ValueError, IndexError):
+            flash("Choose the month the rent starts.", "error")
+            return _safe_redirect(target, "revenue_forecast")
+        save_rent_settings(q2(amount), start)
+        if amount == 0:
+            flash("No ground rent in the forecast.", "success")
+        else:
+            flash(f"Ground rent set to {app.config['CURRENCY_SYMBOL']}{fmt_money(amount)} a month "
+                  f"from {start.strftime('%b %Y')}.", "success")
+        return _safe_redirect(target, "revenue_forecast")
 
     # ---------------- watchmen ----------------
 
@@ -1113,11 +1213,18 @@ def _register_routes(app: Flask) -> None:
         summary = totals(period)
         partner_rows = Partner.query.order_by(Partner.sort_order, Partner.id).all()
         active = [p for p in partner_rows if p.is_active]
+        ground = ground_settlement()
+        paid_by = {r["partner"].id: r["paid"] for r in ground["partner_rows"]}
+        has_payments = {pid for (pid,) in db.session.query(GroundPayment.partner_id)
+                        .filter(GroundPayment.partner_id.isnot(None)).distinct()}
         return render_template(
             "partners.html",
             summary=summary,
             shares=partner_shares(summary["net"], active),
             all_partners=partner_rows,
+            ground=ground,
+            paid_by=paid_by,
+            has_payments=has_payments,
             **_filter_context(period),
         )
 
@@ -1218,7 +1325,7 @@ def _register_routes(app: Flask) -> None:
         target = request.form.get("next")
         if GroundPayment.query.filter_by(partner_id=partner.id).first():
             flash(f"{partner.name} has ground payments recorded, so they can't be removed. "
-                  f"Untick \u201cInclude\u201d to leave them out of the profit split instead.", "error")
+                  f"Turn off Active to stop them sharing profit instead.", "error")
             return _safe_redirect(target, "partners")
         name = partner.name
         db.session.delete(partner)
@@ -1270,28 +1377,84 @@ def _register_routes(app: Flask) -> None:
         flash("Entry deleted.", "success")
         return _safe_redirect(request.form.get("next"))
 
-    # ---------------- excel export ----------------
+    # ---------------- excel / csv export ----------------
 
-    def _workbook_bytes(period):
+    XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+    def _workbook_bytes(period, calendar_only=False):
         import io
-        from exporter import build_workbook
+        from exporter import build_calendar_workbook, build_workbook
 
-        workbook = build_workbook(period, generated_at=datetime.now(timezone.utc))
+        builder = build_calendar_workbook if calendar_only else build_workbook
+        workbook = builder(period, generated_at=datetime.now(timezone.utc))
         buffer = io.BytesIO()
         workbook.save(buffer)
         return buffer.getvalue()
+
+    def _download(payload, mimetype, filename):
+        if isinstance(payload, str):
+            payload = payload.encode("utf-8")
+        return Response(payload, mimetype=mimetype, headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(len(payload)),
+        })
 
     @app.get("/export.xlsx")
     @login_required
     def export_xlsx():
         period = parse_period(request.args)
-        payload = _workbook_bytes(period)
-        return Response(
-            payload,
-            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={
-                "Content-Disposition": f'attachment; filename="{_export_filename(period)}"',
-                "Content-Length": str(len(payload)),
+        return _download(_workbook_bytes(period), XLSX_MIME, _export_filename(period))
+
+    @app.get("/export.csv")
+    @login_required
+    def export_csv():
+        from exporter import ledger_csv
+
+        period = parse_period(request.args)
+        return _download(ledger_csv(period), "text/csv; charset=utf-8", _export_filename(period, ext="csv"))
+
+    @app.get("/export/calendar.xlsx")
+    @login_required
+    def export_calendar_xlsx():
+        period = parse_period(request.args)
+        return _download(_workbook_bytes(period, calendar_only=True), XLSX_MIME,
+                         _export_filename(period, prefix="BailsCalendar"))
+
+    @app.get("/export/calendar.csv")
+    @login_required
+    def export_calendar_csv():
+        from exporter import calendar_csv
+
+        period = parse_period(request.args)
+        return _download(calendar_csv(period), "text/csv; charset=utf-8",
+                         _export_filename(period, prefix="BailsCalendar", ext="csv"))
+
+    @app.get("/export/preview")
+    @login_required
+    def export_preview():
+        """The figures the Export / Send mail dialogs show for the chosen period."""
+        period = parse_period(request.args)
+        summary = totals(period)
+        cur = app.config["CURRENCY_SYMBOL"]
+        bookings = booking_summary(period.start, period.end)
+        return jsonify(
+            label=period.label,
+            kind=period.kind,
+            opening=f"{cur}{fmt_money(period_opening(period))}",
+            income=f"{cur}{fmt_money(summary['income'])}",
+            expense=f"{cur}{fmt_money(summary['expense'])}",
+            net=f"{cur}{fmt_money(summary['net'])}",
+            net_label=net_label(period.kind, summary["net"]),
+            closing=f"{cur}{fmt_money(balance_as_of(period.end))}",
+            count=summary["count"],
+            days_blocked=bookings["days_blocked"],
+            full_days=bookings["full_days"],
+            blocked_slots=bookings["blocked_slots"],
+            files={
+                "ledger_xlsx": _export_filename(period),
+                "ledger_csv": _export_filename(period, ext="csv"),
+                "calendar_xlsx": _export_filename(period, prefix="BailsCalendar"),
+                "calendar_csv": _export_filename(period, prefix="BailsCalendar", ext="csv"),
             },
         )
 
@@ -1341,69 +1504,59 @@ def _register_routes(app: Flask) -> None:
 
     # ---------------- email ----------------
 
-    _PERIOD_NOUN = {"month": "Monthly", "quarter": "Quarterly", "year": "Yearly",
-                    "all": "All-time", "custom": "Custom range"}
-
     def _mail_draft(period) -> dict:
-        """Subject and body written from the figures for the chosen period."""
+        """Subject and body written from the figures for the chosen period.
+
+        Same wording as the iPhone app. The ground calendar is in the attached
+        workbook only, not in the body.
+        """
         cur = app.config["CURRENCY_SYMBOL"]
         summary = totals(period)
         partners = Partner.query.filter_by(is_active=True).order_by(Partner.sort_order, Partner.id).all()
         shares = partner_shares(summary["net"], partners)
         opening = period_opening(period)
         closing = balance_as_of(period.end)
-        noun = _PERIOD_NOUN.get(period.kind, "")
-        result = "profit" if summary["net"] >= 0 else "loss"
+        tag = PERIOD_TAGS.get(period.kind, "Custom")
+        noun = {"all": "all-time"}.get(period.kind, tag.lower())
 
         def money(value):
             return f"{cur}{fmt_money(value)}"
 
+        margin = f" ({summary['margin']}% margin)" if summary["margin"] is not None else ""
         lines = [
             "Hello,",
             "",
-            f"Please find attached the Bail's Cricket Ground ledger for {period.label}.",
+            f"Please find attached the Bail's Cricket Ground {noun} ledger for {period.label}.",
             "",
             f"Summary \u2014 {period.label}",
-            f"  Opening balance:   {money(opening)}",
-            f"  Income (credit):   {money(summary['income'])}",
-            f"  Expenses (debit):  {money(summary['expense'])}",
-            f"  {'Net ' + result + ':':<19}{money(summary['net'])}",
-            f"  Closing balance:   {money(closing)}",
-            f"  Entries:           {summary['count']}",
+            f"\u2022 Opening balance: {money(opening)}",
+            f"\u2022 Income (credit): {money(summary['income'])}",
+            f"\u2022 Expenses (debit): {money(summary['expense'])}",
+            f"\u2022 {net_label(period.kind, summary['net'])}: {money(summary['net'])}{margin}",
+            f"\u2022 Closing balance: {money(closing)}",
+            f"\u2022 Entries: {summary['count']}",
         ]
+        months = period_months(period)
+        if len(months) >= 2:
+            lines += ["", "Month by month (opening \u2192 closing)"]
+            lines += [f"\u2022 {m['label']}: {money(m['opening'])} \u2192 {money(m['closing'])}" for m in months]
         if shares["rows"]:
-            lines += ["", f"Partner share of net {result}"]
+            lines += ["", "Partner share of loss" if summary["net"] < 0 else "Partner profit share"]
             for row in shares["rows"]:
-                lines.append(f"  {row['name']} ({row['equity'].normalize():f}%): {money(row['share'])}")
-        cal = booking_summary(period.start, period.end)
-        lines += ["", "Ground calendar"]
-        if cal["bookings"]:
-            lines += [
-                f"  Days with bookings: {cal['days_blocked']}",
-                f"  Full days blocked:  {cal['full_days']}",
-                f"  Slots blocked:      {cal['blocked_slots']}",
-                "",
-            ]
-            shown = cal["bookings"][:40]
-            for b in shown:
-                who = f" \u2014 {b.booked_by}" if b.booked_by else ""
-                note = f" ({b.note})" if b.note else ""
-                lines.append(f"  {b.booking_date.strftime('%a %d %b %Y')}  {b.slot}{who}{note}")
-            if len(cal["bookings"]) > len(shown):
-                lines.append(f"  \u2026and {len(cal['bookings']) - len(shown)} more in the workbook.")
-        else:
-            lines.append("  Nothing blocked in this period.")
+                lines.append(f"\u2022 {row['name']} ({row['equity'].normalize():f}%): {money(row['share'])}")
 
         filename = _export_filename(period)
         lines += [
             "",
-            f"The full ledger and calendar are in the attached workbook ({filename}).",
+            f"The attached spreadsheet ({filename}) has the summary, every transaction with its "
+            "running balance, and month-by-month balances.",
             "",
             "Regards,",
-            "Bail's Cricket Ground",
+            "Bail's Cricket Ground Ledger",
         ]
+        label = "All time" if period.kind == "all" else tag
         return {
-            "subject": f"Bail's Cricket Ground \u2014 {noun} ledger: {period.label}",
+            "subject": f"Bails Cricket Ground \u00b7 {label} ledger & calendar \u00b7 {period.label}",
             "body": "\n".join(lines),
             "filename": filename,
         }
@@ -1415,7 +1568,8 @@ def _register_routes(app: Flask) -> None:
     @admin_required
     def mail_draft():
         period = parse_period(request.args)
-        return jsonify(label=period.label, recipients=_saved_recipients(), **_mail_draft(period))
+        return jsonify(label=period.label, recipients=_saved_recipients(),
+                       defaults=DEFAULT_MAIL_RECIPIENTS, **_mail_draft(period))
 
     @app.post("/mail/send")
     @admin_required
@@ -1475,22 +1629,22 @@ def _register_routes(app: Flask) -> None:
         from backup import build_backup, build_period_backup
 
         period = parse_period(request.args) if request.args.get("period") else None
-        if period is not None and not (period.start and period.end):
-            period = None  # all time, or an open-ended custom range: back up everything
+        if request.args.get("full") or (period is not None and not (period.start and period.end)):
+            period = None  # all time, an open-ended custom range, or "full backup" asked for
         now = datetime.now(timezone.utc)
+        stamp = date.today().isoformat()
         if period is None:
             snapshot = build_backup(generated_at=now)
-            scope = "full"
+            filename = f"bails-ledger-backup-{stamp}.json"
         else:
             snapshot = build_period_backup(period, generated_at=now)
-            scope = _period_slug(period)
+            filename = f"bails-ledger-backup-{file_label(period)}-{stamp}.json"
         payload = json.dumps(snapshot, indent=2, ensure_ascii=False)
-        stamp = date.today().isoformat()
         return Response(
             payload,
             mimetype="application/json",
             headers={
-                "Content-Disposition": f'attachment; filename="bails-ledger-backup-{scope}-{stamp}.json"',
+                "Content-Disposition": f'attachment; filename="{filename}"',
                 "Content-Length": str(len(payload.encode("utf-8"))),
             },
         )

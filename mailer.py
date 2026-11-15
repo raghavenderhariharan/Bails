@@ -27,7 +27,8 @@ from email.utils import formataddr
 XLSX_MIME = ("application", "vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 MAX_RECIPIENTS = 20
 
-_EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+'-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$")
+# Same rule as the iPhone app, so an address one accepts the other accepts too.
+_EMAIL_RE = re.compile(r"^[^@\s;,]+@[^@\s;,]+\.[^@\s;,]{2,}$")
 
 
 class MailError(Exception):

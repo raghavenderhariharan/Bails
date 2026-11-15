@@ -177,5 +177,7 @@ def test_slots_listed_in_time_order(app):
     c = admin(app)
     block(c, "2026-11-22", "2:30 PM", "7:00 AM", "10:45 AM")
     body = c.get("/calendar?month=2026-11").get_data(as_text=True)
-    table = body[body.index("Blocked this month"):]
+    # The day sheet's data lists a day's blocks in time-of-day order.
+    table = body[body.index('id="calDay"'):]
     assert table.index("7:00 AM") < table.index("10:45 AM") < table.index("2:30 PM")
+    assert "Blocked this month" not in body

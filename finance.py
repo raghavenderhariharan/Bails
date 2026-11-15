@@ -547,3 +547,78 @@ def booking_summary(start: Optional[date], end: Optional[date]) -> dict:
         "blocked_slots": sum(len(BOOKING_SLOTS) if b.slot == FULL_DAY else 1 for b in bookings),
         "slots_per_day": len(BOOKING_SLOTS),
     }
+
+
+# --------------------------------------------------------------------------- #
+# Labels shared by the dashboard, exports and the email (same wording as the
+# iPhone app, so the two never disagree).
+# --------------------------------------------------------------------------- #
+
+PERIOD_TAGS = {"month": "Monthly", "quarter": "Quarterly", "year": "Yearly",
+               "all": "All time", "custom": "Custom"}
+# The word used in file names: BailsLedger-Monthly-Oct-2026.xlsx
+FILE_KINDS = {"month": "Monthly", "quarter": "Quarterly", "year": "Yearly",
+              "all": "All", "custom": "Custom"}
+
+
+def net_label(kind: str, net) -> str:
+    """'Net Profit (Monthly)', or 'Net Loss (Quarterly)' when the period lost money."""
+    word = "Loss" if Decimal(net or 0) < 0 else "Profit"
+    return f"Net {word} ({PERIOD_TAGS.get(kind, 'Custom')})"
+
+
+def file_label(period: Period) -> str:
+    """The period label made filename-safe: 'Q4 2026 (Oct–Dec)' -> 'Q4-2026-Oct-Dec'."""
+    import re
+
+    return re.sub(r"[^A-Za-z0-9]+", "-", period.label).strip("-") or "All-time"
+
+
+def file_stem(prefix: str, period: Period) -> str:
+    """'BailsLedger-Monthly-Oct-2026', 'BailsCalendar-Quarterly-Q4-2026-Oct-Dec'."""
+    return f"{prefix}-{FILE_KINDS.get(period.kind, 'Custom')}-{file_label(period)}"
+
+
+def period_months(period: Period) -> list:
+    """Month-by-month balances inside a period (the dashboard card and the
+    Excel "Month by month" table).
+
+    The first month opens on the balance brought forward into the period; each
+    later month opens on the previous month's closing. Open-ended periods
+    cover the months from the first to the last entry. A custom range that
+    starts or ends mid-month counts only the range's own entries.
+    """
+    start, end = period.start, period.end
+    first, last = data_bounds()
+    start = start or first
+    end = end or last
+    if start is None or end is None or start > end:
+        return []
+
+    rows = (
+        db.session.query(Transaction.txn_date, Transaction.kind, Transaction.amount)
+        .filter(Transaction.txn_date >= start, Transaction.txn_date <= end)
+        .all()
+    )
+    buckets = {}
+    for txn_date, kind, amount in rows:
+        slot = buckets.setdefault((txn_date.year, txn_date.month), [Decimal("0"), Decimal("0")])
+        slot[0 if kind == INCOME else 1] += Decimal(amount or 0)
+
+    running = period_opening(period)
+    months = []
+    for index in range(_month_index(start), _month_index(end) + 1):
+        yy, mm = _from_month_index(index)
+        income, expense = (q2(v) for v in buckets.get((yy, mm), (0, 0)))
+        net = q2(income - expense)
+        months.append({
+            "month": date(yy, mm, 1),
+            "label": f"{MONTH_NAMES[mm - 1]} {yy}",
+            "opening": running,
+            "income": income,
+            "expense": expense,
+            "net": net,
+            "closing": q2(running + net),
+        })
+        running = q2(running + net)
+    return months

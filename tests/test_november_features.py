@@ -98,39 +98,46 @@ def test_monthly_table_has_opening_and_closing(app):
 
 def test_trend_card_toggles_graph_and_table(app):
     body = admin(app).get("/").get_data(as_text=True)
-    assert 'data-view="graph"' in body and 'data-view="table"' in body
-    assert 'data-view-pane="table" hidden' in body
-    assert "View as table" not in body
+    # One button flips between the two; the table starts hidden.
+    assert "data-view-switch" in body and 'data-label-table="View as graph"' in body
+    assert 'data-view-pane="table" hidden' in body and ">View as table<" in body
 
 
 # ----------------------------- 2. export / backup by period ---------------------
 
 def test_export_dialog_available_to_partner_without_backup(app):
     body = partner(app).get("/").get_data(as_text=True)
-    assert 'id="exportModal"' in body and "Download Excel" in body
+    assert 'id="exportModal"' in body and "Export ledger" in body and "Export calendar" in body
     assert "Download backup" not in body and 'id="mailModal"' not in body
 
 
-@pytest.mark.parametrize("query,slug", [
-    ("period=month&month=2026-10", "2026-10"),
-    ("period=quarter&year=2026&quarter=4", "2026-Q4"),
-    ("period=year&year=2026", "2026"),
-    ("period=all", "all"),
+@pytest.mark.parametrize("query,stem", [
+    ("period=month&month=2026-10", "Monthly-Oct-2026"),
+    ("period=quarter&year=2026&quarter=4", "Quarterly-Q4-2026-Oct-Dec"),
+    ("period=year&year=2026", "Yearly-Year-2026"),
+    ("period=all", "All-All-time"),
 ])
-def test_export_filename_names_the_period(app, query, slug):
-    cd = admin(app).get(f"/export.xlsx?{query}").headers["Content-Disposition"]
-    assert f'BailsLedgerBook-{slug}-{date.today().isoformat()}.xlsx' in cd
+def test_export_filename_names_the_period(app, query, stem):
+    c = admin(app)
+    assert f'filename="BailsLedger-{stem}.xlsx"' in c.get(f"/export.xlsx?{query}").headers["Content-Disposition"]
+    assert f'filename="BailsLedger-{stem}.csv"' in c.get(f"/export.csv?{query}").headers["Content-Disposition"]
+    assert f'filename="BailsCalendar-{stem}.xlsx"' in c.get(
+        f"/export/calendar.xlsx?{query}").headers["Content-Disposition"]
+    assert f'filename="BailsCalendar-{stem}.csv"' in c.get(
+        f"/export/calendar.csv?{query}").headers["Content-Disposition"]
 
 
 def test_month_backup_holds_only_that_month(app):
     c = admin(app)
     seed(c)
     r = c.get("/admin/backup.json?period=month&month=2026-10")
-    assert "bails-ledger-backup-2026-10-" in r.headers["Content-Disposition"]
+    assert f'bails-ledger-backup-Oct-2026-{date.today().isoformat()}.json' in r.headers["Content-Disposition"]
     data = json.loads(r.get_data(as_text=True))
+    # Same shape as the iPhone app's period backup (format 8 + "period").
+    assert data["format"] == 8 and data["period"] == "Oct 2026"
     assert data["scope"]["start"] == "2026-10-01" and data["scope"]["end"] == "2026-10-31"
     assert [t["txn_date"] for t in data["transactions"]] == ["2026-10-05", "2026-10-09"]
-    assert "partners" not in data
+    assert data["partners"] and "watchmen" in data
 
 
 def test_quarter_and_year_backups(app):
@@ -367,16 +374,20 @@ def test_mail_draft_is_written_for_the_period(app):
     c = admin(app)
     seed(c)
     d = c.get("/mail/draft?period=month&month=2026-10").get_json()
-    assert d["subject"] == "Bail's Cricket Ground — Monthly ledger: Oct 2026"
-    assert "Income (credit):   ₹51,000" in d["body"]
-    assert "Net profit:" in d["body"] and "₹44,000" in d["body"]
-    assert "Closing balance:   ₹44,000" in d["body"]
-    assert d["filename"].startswith("BailsLedgerBook-2026-10-")
+    assert d["subject"] == "Bails Cricket Ground · Monthly ledger & calendar · Oct 2026"
+    assert "the Bail's Cricket Ground monthly ledger for Oct 2026" in d["body"]
+    assert "• Income (credit): ₹51,000" in d["body"]
+    assert "• Net Profit (Monthly): ₹44,000 (" in d["body"] and "% margin)" in d["body"]
+    assert "• Closing balance: ₹44,000" in d["body"]
+    assert "Partner profit share" in d["body"] and "Month by month" not in d["body"]
+    assert d["body"].endswith("Regards,\nBail's Cricket Ground Ledger")
+    assert d["filename"] == "BailsLedger-Monthly-Oct-2026.xlsx"
     assert d["recipients"] == ["bailscricketground@gmail.com", "medallion76@gmail.com"]
     q = c.get("/mail/draft?period=quarter&year=2026&quarter=4").get_json()
-    assert q["subject"].endswith("Quarterly ledger: Q4 2026 (Oct–Dec)")
+    assert q["subject"].endswith("Quarterly ledger & calendar · Q4 2026 (Oct–Dec)")
+    assert "Month by month (opening → closing)" in q["body"] and "• Oct 2026: ₹0 → ₹44,000" in q["body"]
     y = c.get("/mail/draft?period=year&year=2026").get_json()
-    assert "Yearly ledger: Year 2026" in y["subject"]
+    assert "Yearly ledger & calendar · Year 2026" in y["subject"]
 
 
 def test_partner_cannot_use_mail(app):
@@ -400,9 +411,9 @@ def test_send_mail_attaches_workbook(app, monkeypatch):
     assert "Emailed the Oct 2026 ledger" in body
     msg = sent[0]
     assert msg["To"] == "bailscricketground@gmail.com, new@example.com"
-    assert "Monthly ledger: Oct 2026" in msg["Subject"]
+    assert "Monthly ledger & calendar · Oct 2026" in msg["Subject"]
     attachments = list(msg.iter_attachments())
-    assert attachments[0].get_filename().startswith("BailsLedgerBook-2026-10-")
+    assert attachments[0].get_filename() == "BailsLedger-Monthly-Oct-2026.xlsx"
     assert attachments[0].get_payload(decode=True)[:2] == b"PK"  # a real xlsx (zip)
     with app.app_context():
         assert [m.email for m in MailRecipient.query.order_by(MailRecipient.sort_order)] == [
@@ -527,10 +538,9 @@ def test_mail_includes_calendar(app, monkeypatch):
     monkeypatch.setattr(mailer, "deliver", lambda msg: sent.append(msg))
     c = admin(app)
     _block(c, "2026-11-14", "Full Day", by="Tournament")
+    # The calendar travels in the attachment only, never in the body.
     d = c.get("/mail/draft?period=month&month=2026-11").get_json()
-    assert "Ground calendar" in d["body"] and "Full days blocked:  1" in d["body"]
-    assert "Sat 14 Nov 2026  Full Day — Tournament" in d["body"]
-    assert "Nothing blocked in this period." in c.get("/mail/draft?period=month&month=2026-10").get_json()["body"]
+    assert "Tournament" not in d["body"] and "14 Nov" not in d["body"] and "Ground calendar" not in d["body"]
     post(c, "/mail/send", {"period": "month", "month": "2026-11", "recipients": "a@example.com"}, path="/")
     wb = load_workbook(BytesIO(next(sent[0].iter_attachments()).get_payload(decode=True)))
     assert "Ground Calendar" in wb.sheetnames
@@ -549,11 +559,11 @@ def test_calendar_page_has_export_and_mail(app):
     ("period=quarter&year=2026&quarter=4", "Quarterly"),
     ("period=year&year=2026", "Yearly"),
     ("period=all", "All time"),
-    ("period=custom&from=2026-10-01&to=2026-10-15", "Custom range"),
+    ("period=custom&from=2026-10-01&to=2026-10-15", "Custom"),
 ])
 def test_net_profit_label_names_the_period(app, query, tag):
     c = admin(app)
     seed(c)
-    assert f"Net profit ({tag})" in c.get(f"/?{query}").get_data(as_text=True)
-    assert f"Net profit ({tag})" in c.get(f"/income?{query}").get_data(as_text=True)
-    assert f"Distributable net profit ({tag})" in c.get(f"/partners?{query}").get_data(as_text=True)
+    assert f"Net Profit ({tag})" in c.get(f"/?{query}").get_data(as_text=True)
+    assert f"Net Profit ({tag})" in c.get(f"/income?{query}").get_data(as_text=True)
+    assert f"Net Profit ({tag}) to share" in c.get(f"/partners?{query}").get_data(as_text=True)

@@ -13,7 +13,12 @@ from models import (
 )
 
 # Bump only if the shape below changes in a way a restore must branch on.
-BACKUP_FORMAT = 9
+# Shared with the iPhone app, which reads and writes format 8: everything added
+# since (partner phone/email, mail_recipients, period, scope) is optional and
+# ignored by readers that don't know it. Format 9 files written by an earlier
+# build of this site are still accepted.
+BACKUP_FORMAT = 8
+READABLE_FORMAT = 9
 
 
 def _iso(value):
@@ -41,41 +46,39 @@ def _booking_row(b):
 
 
 def build_period_backup(period, generated_at=None) -> dict:
-    """Just one period's transactions and calendar bookings.
+    """A backup of one period, in the same format the iPhone app writes.
 
-    Restoring it replaces only that date range; partners, watchmen, the ground
-    ledger and settings are left alone (they are not dated, so they live only
-    in a full backup).
+    It holds that period's transactions, calendar bookings and dated ground
+    payments, plus partners, watchmen, sellers and settings in full, with
+    ``settings.opening_balance`` set to the balance brought forward into the
+    period. ``period`` names it for the app's restore warning.
+
+    ``scope`` (website only) lets this site restore just that date range and
+    leave everything else alone; the app ignores it and replaces everything.
     """
-    transactions = (
-        Transaction.query
-        .filter(Transaction.txn_date >= period.start, Transaction.txn_date <= period.end)
-        .order_by(Transaction.txn_date, Transaction.id).all()
-    )
-    bookings = (
-        GroundBooking.query
-        .filter(GroundBooking.booking_date >= period.start, GroundBooking.booking_date <= period.end)
-        .order_by(GroundBooking.booking_date, GroundBooking.slot).all()
-    )
-    watchman_name = {w.id: w.name for w in Watchman.query.all()}
-    income = sum((t.amount for t in transactions if t.kind == "income"), Decimal("0"))
-    expense = sum((t.amount for t in transactions if t.kind == "expense"), Decimal("0"))
-    return {
-        "format": BACKUP_FORMAT,
-        "app": "Bails Cricket Ground Ledger",
-        "generated_at": _iso(generated_at or datetime.now(timezone.utc)),
-        "scope": {"kind": period.kind, "label": period.label,
-                  "start": _iso(period.start), "end": _iso(period.end)},
-        "summary": {
-            "transactions": len(transactions),
-            "income": f"{income:.2f}",
-            "expense": f"{expense:.2f}",
-            "net": f"{income - expense:.2f}",
-            "ground_bookings": len(bookings),
-        },
-        "transactions": [_txn_row(t, watchman_name) for t in transactions],
-        "ground_bookings": [_booking_row(b) for b in bookings],
-    }
+    from finance import period_opening
+
+    data = build_backup(generated_at=generated_at)
+    lo, hi = period.start.isoformat(), period.end.isoformat()
+    data["transactions"] = [t for t in data["transactions"] if lo <= (t["txn_date"] or "") <= hi]
+    data["ground_bookings"] = [b for b in data["ground_bookings"] if lo <= (b["booking_date"] or "") <= hi]
+    data["ground_payments"] = [g for g in data["ground_payments"] if g["txn_date"] and lo <= g["txn_date"] <= hi]
+    data["settings"]["opening_balance"] = f"{period_opening(period):.2f}"
+    data["period"] = period.label
+    data["scope"] = {"kind": period.kind, "label": period.label, "start": lo, "end": hi}
+
+    income = sum((Decimal(t["amount"]) for t in data["transactions"] if t["kind"] == "income"), Decimal("0"))
+    expense = sum((Decimal(t["amount"]) for t in data["transactions"] if t["kind"] == "expense"), Decimal("0"))
+    data["summary"].update({
+        "transactions": len(data["transactions"]),
+        "income": f"{income:.2f}",
+        "expense": f"{expense:.2f}",
+        "net": f"{income - expense:.2f}",
+        "watchman_tagged": sum(1 for t in data["transactions"] if t.get("watchman")),
+        "ground_bookings": len(data["ground_bookings"]),
+        "ground_payments": len(data["ground_payments"]),
+    })
+    return data
 
 
 def build_backup(generated_at=None) -> dict:
@@ -205,10 +208,14 @@ def restore_backup(data: dict) -> dict:
     """
     if not isinstance(data, dict) or "transactions" not in data:
         raise ValueError("This does not look like a Bails ledger backup.")
-    if int(data.get("format", 0)) > BACKUP_FORMAT:
+    try:
+        fmt = int(data.get("format", 0))
+    except (TypeError, ValueError):
+        raise ValueError("This does not look like a Bails ledger backup.")
+    if fmt > READABLE_FORMAT:
         raise ValueError(
             f"Backup format {data.get('format')} is newer than this app "
-            f"understands ({BACKUP_FORMAT}). Update the app first."
+            f"understands ({READABLE_FORMAT}). Update the app first."
         )
     if data.get("scope"):
         return _restore_period(data)

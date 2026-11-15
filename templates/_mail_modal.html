@@ -19,10 +19,11 @@
           <label for="m-to">To</label>
           <textarea id="m-to" name="recipients" rows="2" required
                     placeholder="name@example.com; another@example.com"></textarea>
-          <div style="margin-top:.35rem">
+          <div style="margin-top:.35rem;display:flex;gap:.8rem;align-items:center;flex-wrap:wrap">
             <label class="check small">
               <input type="checkbox" name="remember" checked> Remember these addresses for next time
             </label>
+            <button class="btn btn--sm btn--ghost" type="button" data-mail-defaults>Restore default recipients</button>
           </div>
         </div>
         <div class="field span-2">

@@ -222,7 +222,7 @@ def test_custom_range_link_is_seeded_with_the_window(client):
 def test_custom_range_filters_correctly(client):
     login(client)
     body = client.get("/?period=custom&from=2026-10-01&to=2026-10-03").get_data(as_text=True)
-    match = re.search(r'Income · Credit.*?kpi__value[^>]*>\s*<span class="cur">[^<]*</span>([^<]*)',
+    match = re.search(r'kpi kpi--credit.*?kpi__value[^>]*>\s*<span class="cur">[^<]*</span>([^<]*)',
                       body, re.S)
     assert match.group(1).strip() == "15,000"
 

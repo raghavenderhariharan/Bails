@@ -71,18 +71,21 @@ def test_sheets_mirror_the_original_workbook(app, tmp_path):
 
 def test_ledger_columns_match_the_original(app, tmp_path):
     ws = saved(app, tmp_path)["Transaction Ledger"]
-    header = [ws.cell(row=1, column=c).value for c in range(1, 13)]
+    header = [ws.cell(row=1, column=c).value for c in range(1, 14)]
     assert header == ["Date", "Day", "Type", "Category", "Description", "Slot",
-                      "Party", "Income", "Expense", "Net", "Running Balance", "Notes"]
+                      "Party", "Income", "Expense", "Net", "Running Balance", "Notes", "Watchman"]
 
 
 def test_dashboard_has_the_tiles_and_month_table(app, tmp_path):
     ws = saved(app, tmp_path)["Dashboard"]
     text = [str(c.value) for row in ws.iter_rows() for c in row if c.value is not None]
     assert any("LEDGER DASHBOARD" in t for t in text)
-    assert "INCOME (CREDIT)" in text and "EXPENSE (DEBIT)" in text and "NET BALANCE" in text
-    assert "Month" in text and "Income" in text and "Expense" in text and "Net" in text
-    assert any("Recurring Commitment" in t for t in text)
+    assert "BAILS CRICKET GROUND \u2014 LEDGER DASHBOARD" in text
+    assert "INCOME (CREDIT)" in text and "EXPENSE (DEBIT)" in text
+    assert "NET PROFIT (ALL TIME)" in text
+    assert "OPENING BALANCE" in text and "CLOSING BALANCE" in text and "ENTRIES" in text
+    assert "Month by month" in text and "Opening" in text and "Closing" in text
+    assert "Income by category" in text and "Expenses by category" in text
 
 
 def test_opening_balance_row_is_present_and_self_consistent(app, tmp_path):
@@ -112,9 +115,11 @@ def test_running_balance_is_cumulative(app, tmp_path):
 
 def test_dashboard_tiles_match_the_data(app, tmp_path):
     ws = saved(app, tmp_path)["Dashboard"]
-    assert ws["A7"].value == 51000
-    assert ws["D7"].value == 7000
-    assert ws["G7"].value == 44000
+    assert ws["A8"].value == 51000
+    assert ws["C8"].value == 7000
+    assert ws["E8"].value == 44000
+    assert ws["C12"].value == 44000  # closing balance card
+    assert ws["E12"].value == 10      # entries
 
 
 def test_partner_sheet_splits_the_net_exactly(app, tmp_path):
@@ -141,7 +146,7 @@ def test_export_survives_an_empty_period(app, tmp_path):
     wb = saved(app, tmp_path, {"period": "month", "month": "2027-05"})
     ws = wb["Transaction Ledger"]
     assert ws.cell(row=2, column=3).value == "Opening Balance"
-    assert wb["Dashboard"]["A7"].value == 0
+    assert wb["Dashboard"]["A8"].value == 0
 
 
 # --------------------------------- routes ---------------------------------- #
@@ -353,6 +358,9 @@ def test_xlsx_filename_uses_todays_date_not_the_period_end(app):
     import datetime
     today = datetime.date.today().isoformat()
     client = admin(app)
-    for query in ("period=month&month=2026-10", "period=year&year=2026", "period=all"):
+    del today  # the app's naming has no date: BailsLedger-{Kind}-{Label}.xlsx
+    for query, name in (("period=month&month=2026-10", "BailsLedger-Monthly-Oct-2026.xlsx"),
+                        ("period=year&year=2026", "BailsLedger-Yearly-Year-2026.xlsx"),
+                        ("period=all", "BailsLedger-All-All-time.xlsx")):
         cd = client.get(f"/export.xlsx?{query}").headers["Content-Disposition"]
-        assert cd.endswith(f'-{today}.xlsx"') and "BailsLedgerBook-" in cd, cd
+        assert cd.endswith(f'"{name}"'), cd

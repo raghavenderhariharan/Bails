@@ -10,9 +10,9 @@
   <span class="topbar__spacer"></span>
   <div class="page-head__actions">
     <button class="btn btn--ghost" type="button" data-open-modal="exportModal"
-            title="Download the calendar (with the ledger) as Excel for any month, quarter or year">
+            title="Download the calendar (Excel or CSV) for this month, or any quarter or year">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
-      Export
+      Export calendar
     </button>
   {% if is_admin %}
     <button class="btn btn--ghost" type="button" data-open-modal="mailModal" title="Email the calendar and ledger workbook">
@@ -53,7 +53,7 @@
       {% for week in weeks %}
         {% for d in week %}
           <div class="cal__day cal__day--{{ d.status }}{{ ' cal__day--out' if not d.in_month }}{{ ' cal__day--today' if d.today }}"
-               role="gridcell" {% if is_admin %}data-open-block data-date="{{ d.date.isoformat() }}" tabindex="0"{% endif %}
+               role="gridcell" data-open-day data-date="{{ d.date.isoformat() }}" tabindex="0"
                aria-label="{{ d.date.strftime('%d %B %Y') }}: {{ 'free' if d.status == 'free' else (d.bookings | length ~ ' blocked') }}">
             <div class="cal__num">{{ d.date.day }}</div>
             {% for b in d.bookings %}
@@ -91,47 +91,25 @@
   </div>
 </div>
 
-<div class="card">
-  <div class="card__head"><h2>Blocked this month</h2></div>
-  <div class="card__body card__body--flush">
-    {% if bookings %}
-      <div class="table-scroll">
-        <table class="ledger">
-          <thead><tr><th>Date</th><th>Day</th><th>Slot</th><th>Booked by</th><th>Note</th>{% if is_admin %}<th class="col-actions">Actions</th>{% endif %}</tr></thead>
-          <tbody>
-            {% for b in bookings %}
-              <tr>
-                <td class="nowrap">{{ b.booking_date.strftime('%d %b %Y') }}</td>
-                <td class="nowrap small muted">{{ b.booking_date.strftime('%a') }}</td>
-                <td class="nowrap"><span class="tag {{ 'tag--debit' if b.slot == full_day else '' }}">{{ b.slot }}</span></td>
-                <td>{{ b.booked_by or '—' }}</td>
-                <td class="small">{{ b.note or '—' }}</td>
-                {% if is_admin %}
-                  <td class="col-actions">
-                    <button class="btn btn--sm btn--ghost" type="button"
-                            data-edit-booking data-id="{{ b.id }}" data-date="{{ b.booking_date.isoformat() }}"
-                            data-slot="{{ b.slot }}" data-by="{{ b.booked_by }}" data-note="{{ b.note }}">Edit</button>
-                    <form method="post" action="{{ url_for('booking_delete', booking_id=b.id) }}" style="display:inline"
-                          data-confirm="Unblock {{ b.slot }} on {{ b.booking_date.strftime('%d %b %Y') }}?">
-                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                      <input type="hidden" name="next" value="{{ request.full_path }}">
-                      <button class="btn btn--sm btn--danger" type="submit">Unblock</button>
-                    </form>
-                  </td>
-                {% endif %}
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    {% else %}
-      <div class="empty">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
-        <p>Nothing blocked in {{ month_label }}.{% if is_admin %} Click a date to block it.{% endif %}</p>
-      </div>
-    {% endif %}
+<dialog class="modal" id="dayModal" aria-labelledby="dayModalTitle"
+        data-admin="{{ '1' if is_admin else '' }}" data-month="{{ month_key }}"
+        {% if is_admin %}data-delete-base="/calendar/" data-csrf="{{ csrf_token() }}"
+        data-block-url="{{ url_for('booking_create') }}" data-day-unblock-url="{{ url_for('booking_day_unblock') }}"{% endif %}>
+  <div class="modal__head">
+    <h2 id="dayModalTitle">Day</h2>
+    <span class="spacer"></span>
+    <button class="btn btn--sm btn--ghost btn--icon" type="button" data-close-modal aria-label="Close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true" style="width:18px;height:18px"><path d="M18 6L6 18M6 6l12 12"/></svg>
+    </button>
   </div>
-</div>
+  <div class="modal__body" data-day-body></div>
+  <div class="modal__foot">
+    {% if is_admin %}<button class="btn btn--primary" type="button" data-day-block style="margin-right:auto">Block slots</button>{% endif %}
+    <button class="btn btn--ghost" type="button" data-close-modal>Close</button>
+  </div>
+</dialog>
+<script id="calDay" type="application/json">{{ day_bookings | tojson }}</script>
+<script id="calFreed" type="application/json">{{ unblocked | tojson }}</script>
 
 {% if is_admin %}
 <dialog class="modal" id="blockModal" aria-labelledby="blockModalTitle">
