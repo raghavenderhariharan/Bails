@@ -368,6 +368,7 @@ input:focus, select:focus, textarea:focus {
   background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.26); color: #fff;
 }
 .btn-header:hover { background: rgba(255,255,255,.24); }
+.btn-header--active { background: rgba(255,255,255,.28); border-color: #F5E86A; }
 
 /* ============================== Tables ================================== */
 
