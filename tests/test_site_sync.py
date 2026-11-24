@@ -62,12 +62,12 @@ def test_ledger_is_the_master_record():
     local = [bk(1, "2026-11-28", "7:00 AM", "Octa Legends (Rohit)"),
              bk(2, "2026-11-28", "10:45 AM", "ECL"),
              bk(3, "2026-11-25", "Full Day", "HCA"),
-             bk(4, "2026-11-20", "7:00 AM", "Past")]          # in the past: not pushed
+             bk(4, "2026-11-08", "7:00 AM", "Octa Legends")]  # past days are mirrored too
     status = sitesync.run(local, site, today=TODAY)
-    # The hand-added 25 and 28 Nov blocks give way to the ledger's; the past one stays.
-    assert status == {**status, "ok": True, "created": 3, "deleted": 2, "conflict_count": 0}
+    # Every hand-added block gives way to the ledger's, past ones included.
+    assert status == {**status, "ok": True, "created": 4, "deleted": 3, "conflict_count": 0}
     assert sorted((r["date"], r["slot"], r["label"]) for r in site.rows) == [
-        ("2026-11-23", "full", "Past HCA"), ("2026-11-25", "full", "HCA"),
+        ("2026-11-08", "s1", "Octa Legends"), ("2026-11-25", "full", "HCA"),
         ("2026-11-28", "s1", "Octa Legends"), ("2026-11-28", "s2", "ECL")]
     # Running again changes nothing.
     again = sitesync.run(local, site, today=TODAY)

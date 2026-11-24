@@ -99,7 +99,7 @@ Other features:
   calendar and blocked slots as red.
 - **Website calendar mirror**: the ledger is the master record. After every
   calendar change, the public site's calendar (bails-cricket-ground.onrender.com)
-  is made to match it from today onward, in the background. Setup: DEPLOY.md → *Website calendar*.
+  is made to match it (past and future days), in the background. Setup: DEPLOY.md → *Website calendar*.
 - **Ground calendar** — Admin clicks a day (or **Block a date**) and ticks
   one or more slots, or **Full Day**, with an optional "booked by" and note.
   A slot can't be blocked twice, a full day can't be added on top of slots

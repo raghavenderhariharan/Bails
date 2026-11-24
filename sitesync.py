@@ -1,12 +1,12 @@
 """Keep the public Bails website's calendar in step with the ledger's.
 
 One way: ledger -> website. The ledger is the master record: after every
-calendar change, the website's blocked slots from today onward are made to
+calendar change, the website's blocked slots, past and future, are made to
 match the ledger's exactly (bails-cricket-ground.onrender.com admin API).
 Website blocks the ledger doesn't have are removed, even ones added there by
 hand, and the ledger's are added. Each block the ledger creates carries a
 "[Ledger #<id>]" tag in its admin-only note so later syncs recognise it.
-Past days and the website's fixtures (a separate list) are left alone.
+The website's fixtures (a separate list of matches) are left alone.
 
 Configured only by environment variables (never commit the password):
 
@@ -95,16 +95,13 @@ def plan(local, remote, today):
     """Work out the website changes. ``local``: ledger bookings; ``remote``:
     the website's booking dicts. Returns (creates, deletes) where creates are
     (ledger booking, payload) and deletes are website booking dicts."""
-    wanted = {b.id: (b, payload(b)) for b in local if b.booking_date >= today and b.slot in SLOT_IDS}
-    local_ids = {b.id for b in local}
+    # ``today`` is kept for callers; the whole calendar is mirrored.
+    wanted = {b.id: (b, payload(b)) for b in local if b.slot in SLOT_IDS}
     creates, deletes, have = [], [], set()
     for r in remote:
         m = TAG_RE.search(r.get("note") or "")
         if not m:
-            # Added on the website by hand. The ledger is the master record, so
-            # from today onward it goes; past days are history and stay.
-            if (r.get("date") or "") >= today.isoformat():
-                deletes.append(r)
+            deletes.append(r)  # added on the website by hand: the ledger is the master record
             continue
         lid = int(m.group(1))
         if lid in wanted:
@@ -114,7 +111,7 @@ def plan(local, remote, today):
                 have.add(lid)
                 continue
             deletes.append(r)  # changed in the ledger (or a duplicate): replace it
-        elif lid not in local_ids or (r.get("date") or "") >= today.isoformat():
+        else:
             deletes.append(r)  # unblocked in the ledger
     for lid, (b, body) in sorted(wanted.items(), key=lambda kv: (kv[1][1]["date"], kv[1][1]["slot"])):
         if lid not in have:
@@ -218,7 +215,7 @@ def sync_now(app, client=None):
     if cfg is None and client is None:
         return None
     with app.app_context():
-        local = GroundBooking.query.filter(GroundBooking.booking_date >= today_ist() - timedelta(days=1)).all()
+        local = GroundBooking.query.all()
         try:
             status = run(local, client or Client(*cfg))
         except SyncError as exc:

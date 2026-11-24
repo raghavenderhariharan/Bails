@@ -254,12 +254,11 @@ slow website never holds up the ledger.
    line above the calendar shows the last result.
 
 How it behaves:
-- **Master record:** the ledger. From today onward, the website's blocked
-  slots are made to match the ledger exactly. A block on the website that the
+- **Master record:** the ledger. The website's blocked slots, past and future,
+  are made to match the ledger exactly. A block on the website that the
   ledger doesn't have is removed, even one added there by hand, so block
   everything (HCA days included) in the ledger.
-- **Untouched:** past days, and the website's fixtures (its separate list of
-  matches).
+- **Untouched:** the website's fixtures (its separate list of matches).
 - **Direction:** one way only. Changes made on the website are not copied
   back, and the next ledger change undoes them.
 - **Public label:** the website shows the team name with the contact person in
