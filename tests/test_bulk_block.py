@@ -111,3 +111,19 @@ def test_calendar_shows_free_slots_green_and_blocked_red(app):
     # Partners see the bars but can't click a free one to block it.
     pb = partner(app).get("/calendar?month=2026-11").get_data(as_text=True)
     assert "cal__chip--free" in pb and "data-open-block" not in pb
+
+
+def test_unblocking_twice_goes_back_to_the_calendar(app):
+    """A double click sends the unblock twice; the second must not 404."""
+    from test_november_features import _booking
+    c = admin(app)
+    _block(c, "2027-01-16", "7:00 AM", by="Octa")
+    bid = _booking(app, "2027-01-16", "7:00 AM")
+    nxt = "/calendar?month=2027-01&day=2027-01-16"
+    first = post(c, f"/calendar/{bid}/delete", {"next": nxt}, path="/calendar")
+    second = post(c, f"/calendar/{bid}/delete", {"next": nxt}, path="/calendar")
+    assert first.status_code == 200 and second.status_code == 200
+    assert "That slot is already unblocked." in second.get_data(as_text=True)
+    edit = post(c, f"/calendar/{bid}/edit", {"next": nxt, "booking_date": "2027-01-16", "slot": "7:00 AM"},
+                path="/calendar")
+    assert edit.status_code == 200 and "unblocked meanwhile" in edit.get_data(as_text=True)

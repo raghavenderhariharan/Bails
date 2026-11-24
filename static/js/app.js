@@ -610,8 +610,18 @@
     form.querySelector('[name="slot"]').value = d.slot;
     form.querySelector('[name="booked_by"]').value = d.by || "";
     form.querySelector('[name="note"]').value = d.note || "";
+    form.removeAttribute("data-sent");
+    form.querySelectorAll("button").forEach(function (b) { b.disabled = false; });
     window.BailsModal.open(modal);
   }, true);
+  form.addEventListener("submit", function (e) {
+    if (form.getAttribute("data-sent")) { e.preventDefault(); return; }
+    setTimeout(function () {
+      if (e.defaultPrevented) return;
+      form.setAttribute("data-sent", "1");
+      form.querySelectorAll('button[type="submit"]').forEach(function (b) { b.disabled = true; });
+    }, 0);
+  });
 })();
 
 /* Partners grid: live share of the period's net and the equity total. */
@@ -692,6 +702,12 @@
   function postForm(action, fields, button, confirmText) {
     var f = el("form", { method: "post", action: action, style: "display:inline;margin:0" });
     if (confirmText) f.setAttribute("data-confirm", confirmText);
+    // One click, one request: a second click while the page reloads would
+    // ask to unblock a slot that is already gone.
+    f.addEventListener("submit", function (e) {
+      if (f.getAttribute("data-sent")) { e.preventDefault(); return; }
+      setTimeout(function () { if (!e.defaultPrevented) { f.setAttribute("data-sent", "1"); button.disabled = true; } }, 0);
+    });
     var all = Object.assign({ csrf_token: csrf }, fields);
     Object.keys(all).forEach(function (k) { f.appendChild(el("input", { type: "hidden", name: k, value: all[k] })); });
     f.appendChild(button);

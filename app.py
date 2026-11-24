@@ -1001,9 +1001,10 @@ def _register_routes(app: Flask) -> None:
     def booking_update(booking_id: int):
         """Move or re-enter one booking: change its date, slot, name or note."""
         booking = db.session.get(GroundBooking, booking_id)
-        if booking is None:
-            abort(404)
         target = request.form.get("next")
+        if booking is None:
+            flash("That booking was unblocked meanwhile, so there was nothing to change.", "error")
+            return _safe_redirect(target, "booking_calendar")
         try:
             when = _parse_date(request.form.get("booking_date"))
         except FormError as exc:
@@ -1277,7 +1278,9 @@ def _register_routes(app: Flask) -> None:
     def booking_delete(booking_id: int):
         booking = db.session.get(GroundBooking, booking_id)
         if booking is None:
-            abort(404)
+            # Already gone (a double click, or unblocked in another tab): nothing to do.
+            flash("That slot is already unblocked.", "success")
+            return _safe_redirect(request.form.get("next"), "booking_calendar")
         label = f"{booking.slot} on {booking.booking_date.strftime('%d %b %Y')}"
         _remember_unblocked([booking])
         db.session.delete(booking)
