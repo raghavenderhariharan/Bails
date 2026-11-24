@@ -621,8 +621,8 @@ dialog.modal::backdrop { background: rgba(5, 12, 8, .55); backdrop-filter: blur(
 .cal-toolbar { gap: .5rem; }
 .cal-title { min-width: 9.5rem; text-align: center; }
 .cal-sw { border: 1px solid var(--line-strong); }
-.cal-sw--free    { background: var(--surface); }
-.cal-sw--partial { background: color-mix(in srgb, #B06E00 22%, var(--surface)); }
+.cal-sw--free    { background: color-mix(in srgb, var(--brand-green) 28%, var(--surface)); }
+.cal-sw--partial { background: color-mix(in srgb, var(--debit) 55%, var(--surface)); }
 .cal-sw--full    { background: color-mix(in srgb, var(--debit) 30%, var(--surface)); }
 
 .cal {
@@ -642,7 +642,7 @@ dialog.modal::backdrop { background: rgba(5, 12, 8, .55); backdrop-filter: blur(
 }
 .cal__day[data-open-block] { cursor: pointer; }
 .cal__day[data-open-block]:hover { border-color: var(--brand-green); background: color-mix(in srgb, var(--brand-green) 6%, var(--surface)); }
-.cal__day--partial { background: color-mix(in srgb, #B06E00 9%, var(--surface)); border-color: color-mix(in srgb, #B06E00 35%, var(--line)); }
+.cal__day--partial { border-color: color-mix(in srgb, var(--debit) 30%, var(--line)); }
 .cal__day--full    { background: color-mix(in srgb, var(--debit) 11%, var(--surface)); border-color: color-mix(in srgb, var(--debit) 40%, var(--line)); }
 .cal__day--out { opacity: .45; }
 .cal__day--today .cal__num {
@@ -657,6 +657,14 @@ dialog.modal::backdrop { background: rgba(5, 12, 8, .55); backdrop-filter: blur(
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .cal__chip--full { background: var(--debit); color: #fff; }
+/* Blocked slot: red bar. Free slot: green bar. */
+.cal__chip--booked { background: color-mix(in srgb, var(--debit) 72%, var(--surface)); color: #fff; }
+.cal__chip--free {
+  background: color-mix(in srgb, var(--brand-green) 18%, var(--surface));
+  color: color-mix(in srgb, var(--brand-green-dark) 70%, var(--ink));
+}
+:root[data-theme="dark"] .cal__chip--free { color: #9FE3BF; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .cal__chip--free { color: #9FE3BF; } }
 .cal__who { font-weight: 500; opacity: .85; }
 
 .slot-picks { display: flex; flex-wrap: wrap; gap: .5rem; }
@@ -746,3 +754,13 @@ button.cal__chip:hover { filter: brightness(.95); outline: 1px solid var(--line-
 .fc-year { border: 1px solid var(--line); border-radius: 8px; margin-bottom: .55rem; }
 .fc-year > summary { cursor: pointer; padding: .55rem .75rem; }
 .fc-year[open] > summary { border-bottom: 1px solid var(--line); }
+
+/* Bulk block preview */
+.bulk-preview { margin-top: 1rem; border-top: 1px solid var(--line); padding-top: .4rem; }
+.bulk-preview__table { max-height: 260px; overflow-y: auto; }
+
+/* Website calendar sync status */
+.site-sync { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin: 0 0 1rem;
+  padding: .55rem .8rem; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); }
+.site-sync > svg { width: 16px; height: 16px; color: var(--brand-green); flex: none; }
+.site-sync__c { display: block; color: var(--ink-muted); }

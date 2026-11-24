@@ -92,6 +92,14 @@ Other features:
   address list is remembered and editable. Uses the Gmail API so it works on
   Render's free plan (which blocks SMTP); without setup, **Open in Gmail** opens
   a prefilled draft instead. Setup: DEPLOY.md → *Email*.
+- **Bulk block** (Calendar, Admin): block many dates at once. Either repeat
+  chosen weekdays and slots between two dates, or paste rows copied from Excel
+  (organizer, date, day, time). A preview shows what is new and what is already
+  blocked before anything is saved. Free slots show as green bars on the
+  calendar and blocked slots as red.
+- **Website calendar mirror**: every calendar change is copied to the public
+  site's calendar (bails-cricket-ground.onrender.com) in the background, without
+  touching anything added there by hand. Setup: DEPLOY.md → *Website calendar*.
 - **Ground calendar** — Admin clicks a day (or **Block a date**) and ticks
   one or more slots, or **Full Day**, with an optional "booked by" and note.
   A slot can't be blocked twice, a full day can't be added on top of slots
@@ -242,6 +250,8 @@ import_excel.py     One-off importer for BailsLedgerBook.xlsx
 exporter.py         Builds the .xlsx export (Dashboard / Ledger / Partner Profit / Calendar)
 sync_drive.py       CLI: write the export into a Drive (or any) folder
 mailer.py           Send mail: Gmail API (HTTPS) or SMTP transport
+sitesync.py         Mirror the ground calendar to the public website
+forecast.py         Revenue forecast (exponential smoothing)
 gmail_auth.py       One-time: get the Gmail API refresh token
 templates/          Jinja templates (base, dashboard, tabs, dialog, login)
 static/css/app.css  Design system — brand palette, light/dark, responsive

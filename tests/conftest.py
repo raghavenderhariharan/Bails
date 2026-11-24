@@ -24,6 +24,10 @@ _PINNED = {
     "SMTP_USER": "",
     "SMTP_PASSWORD": "",
     "MAIL_FROM": "",
+    # Nor push a test's calendar to the real website.
+    "BAILS_SITE_URL": "",
+    "BAILS_SITE_USER": "",
+    "BAILS_SITE_PASSWORD": "",
 }
 
 for _key, _value in _PINNED.items():

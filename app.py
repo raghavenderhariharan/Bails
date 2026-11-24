@@ -36,6 +36,7 @@ from models import (
     Transaction, Watchman, db,
 )
 import mailer
+import sitesync
 
 csrf = CSRFProtect()
 
@@ -874,6 +875,13 @@ def _register_routes(app: Flask) -> None:
 
     # ---------------- booking calendar ----------------
 
+    def _calendar_changed():
+        """Push the change to the public website's calendar (in the background)."""
+        try:
+            sitesync.trigger(app)
+        except Exception as exc:  # pragma: no cover - never fail the request over the mirror
+            app.logger.warning("site sync could not start: %s", exc)
+
     def _calendar_month(raw):
         """Parse ?month=YYYY-MM, defaulting to the current month."""
         today = date.today()
@@ -932,6 +940,8 @@ def _register_routes(app: Flask) -> None:
             day_bookings=[{"id": b.id, "date": b.booking_date.isoformat(), "slot": b.slot,
                            "by": b.booked_by or "", "note": b.note or ""} for b in bookings],
             unblocked=session.get("unblocked", []) if is_admin() else [],
+            site_sync=sitesync.configured() if is_admin() else False,
+            site_status=sitesync.last_status() if is_admin() else None,
             booking_slots=BOOKING_SLOTS, full_day=FULL_DAY,
             weekday_names=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
             **_filter_context(period),
@@ -981,6 +991,7 @@ def _register_routes(app: Flask) -> None:
             db.session.rollback()
             flash("That slot was just blocked by someone else. Please refresh.", "error")
             return _safe_redirect(target, "booking_calendar")
+        _calendar_changed()
         _forget_unblocked(when, slots)
         flash(f"{'Re-blocked' if request.form.get('reblock') else 'Blocked'} {', '.join(slots)} on {label}.", "success")
         return _safe_redirect(target, "booking_calendar")
@@ -1027,7 +1038,225 @@ def _register_routes(app: Flask) -> None:
             db.session.rollback()
             flash("That slot was just blocked by someone else. Please refresh.", "error")
             return _safe_redirect(target, "booking_calendar")
+        _calendar_changed()
         flash(f"Updated: {slot} on {label}.", "success")
+        return _safe_redirect(target, "booking_calendar")
+
+    # ---------------- bulk calendar blocks ----------------
+
+    BULK_LIMIT = 400
+    _MONTH_ABBR = {m.lower(): i for i, m in enumerate(MONTH_NAMES, start=1)}
+    _DAY_WORDS = {"mon", "tue", "wed", "thu", "fri", "sat", "sun", "monday", "tuesday", "wednesday",
+                  "thursday", "friday", "saturday", "sunday", "day", "date", "time", "organizer",
+                  "organiser", "total", "slot", "booked", "by"}
+
+    def _bulk_date(token):
+        import re
+
+        token = token.strip()
+        m = re.fullmatch(r"(\d{4})-(\d{1,2})-(\d{1,2})", token)
+        if m:
+            y, mo, d = (int(x) for x in m.groups())
+            return date(y, mo, d)
+        m = re.fullmatch(r"(\d{1,2})[-/ .]([A-Za-z]{3,9})[-/ .,]*(\d{2,4})", token)
+        if m:
+            d, name, y = m.groups()
+            mo = _MONTH_ABBR.get(name[:3].lower())
+            if mo:
+                y = int(y) + (2000 if len(y) == 2 else 0)
+                return date(y, mo, int(d))
+        m = re.fullmatch(r"(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})", token)
+        if m:  # day first, the Indian way
+            d, mo, y = (int(x) for x in m.groups())
+            y += 2000 if y < 100 else 0
+            return date(y, mo, d)
+        return None
+
+    def _bulk_slot(token):
+        import re
+
+        t = re.sub(r"[\s.]+", " ", token.strip().lower())
+        if t in ("full day", "fullday", "full", "all day", "whole day", "all slots"):
+            return FULL_DAY
+        m = re.fullmatch(r"(\d{1,2})(?:[: ](\d{2}))? ?(am|pm)?", t)
+        if m:
+            hour, minute, half = int(m.group(1)), int(m.group(2) or 0), m.group(3)
+            if half == "pm" and hour < 12:
+                hour += 12
+            return {(7, 0): "7:00 AM", (10, 45): "10:45 AM", (14, 30): "2:30 PM", (2, 30): "2:30 PM"}.get((hour, minute))
+        return None
+
+    def _bulk_paste(text):
+        """Rows pasted from a spreadsheet: Organizer · Date · Day · Time (any order).
+
+        Lines without a date (headers, "Total") are skipped. Returns
+        (requests, problems)."""
+        import re
+
+        requests_, problems = [], []
+        for number, line in enumerate((text or "").splitlines(), start=1):
+            if not line.strip():
+                continue
+            cells = [c.strip() for c in re.split(r"\t|,(?=\s*\S)|\s{2,}|;", line) if c.strip()]
+            when = slot = None
+            names = []
+            for cell in cells:
+                if when is None:
+                    try:
+                        when = _bulk_date(cell)
+                    except ValueError:
+                        problems.append(f"Line {number}: {cell} is not a real date.")
+                        when = False
+                        continue
+                    if when:
+                        continue
+                    when = None
+                found = _bulk_slot(cell)
+                if found and slot is None:
+                    slot = found
+                elif cell.lower() not in _DAY_WORDS:
+                    names.append(cell)
+            if when is False:
+                continue
+            if when is None:
+                # Space-separated text (no tabs): find the date and time inside the line.
+                found = re.search(r"\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[-/ .][A-Za-z]{3,9}[-/ .,]*\d{2,4}"
+                                  r"|\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}", line)
+                if not found:
+                    continue  # header or total row
+                try:
+                    when = _bulk_date(found.group(0))
+                except ValueError:
+                    when = None
+                if not when:
+                    problems.append(f"Line {number}: {found.group(0)} is not a real date.")
+                    continue
+                rest = line[found.end():]
+                hit = re.search(r"full\s*day|all\s*day|\d{1,2}[:.]\d{2}\s*(?:am|pm)?|\d{1,2}\s*(?:am|pm)",
+                                rest, re.I)
+                slot = _bulk_slot(hit.group(0)) if hit else None
+                names = [line[:found.start()].strip(" ,;\t-")]
+            if slot is None:
+                problems.append(f"Line {number}: no slot (7:00 AM, 10:45 AM, 2:30 PM or Full day) on {when:%d %b %Y}.")
+                continue
+            requests_.append((when, slot, _clip(" ".join(names), 120), ""))
+        return requests_, problems
+
+    def _bulk_requests(form):
+        """What the bulk dialog asked for, as (date, slot, booked_by, note) rows."""
+        note = _clip(form.get("note"), 255)
+        if form.get("mode") == "paste":
+            rows, problems = _bulk_paste(form.get("rows"))
+            default_by = _clip(form.get("booked_by"), 120)
+            return [(d, s, by or default_by, note) for d, s, by, _ in rows], problems
+        try:
+            start = _parse_date(form.get("start"))
+            end = _parse_date(form.get("end"))
+        except FormError as exc:
+            return [], [str(exc)]
+        if end < start:
+            return [], ["The end date is before the start date."]
+        if (end - start).days > 366:
+            return [], ["Pick a range of a year or less."]
+        days = {int(d) for d in form.getlist("weekday") if str(d).isdigit() and 0 <= int(d) <= 6}
+        if not days:
+            return [], ["Tick at least one day of the week."]
+        slots = [x for x in form.getlist("slot") if x in set(BOOKING_SLOTS) | {FULL_DAY}]
+        if not slots:
+            return [], ["Choose at least one slot, or Full Day."]
+        if FULL_DAY in slots:
+            slots = [FULL_DAY]
+        booked_by = _clip(form.get("booked_by"), 120)
+        out, day = [], start
+        while day <= end:
+            if day.weekday() in days:
+                out += [(day, slot, booked_by, note) for slot in slots]
+            day += timedelta(days=1)
+        return out, []
+
+    def _bulk_plan(rows):
+        """Check every row against the calendar (and the rows before it)."""
+        if not rows:
+            return []
+        lo, hi = min(r[0] for r in rows), max(r[0] for r in rows)
+        taken = {}
+        for b in GroundBooking.query.filter(GroundBooking.booking_date >= lo,
+                                            GroundBooking.booking_date <= hi).all():
+            taken.setdefault(b.booking_date, {})[b.slot] = b.booked_by or ""
+        plan = []
+        for when, slot, by, note in rows:
+            day = taken.setdefault(when, {})
+            if slot in day:
+                same = (day[slot] or "").strip().lower() == (by or "").strip().lower()
+                status = "already" if same else "clash"
+                reason = "Already blocked" + ("" if same else f" for {day[slot] or 'someone else'}")
+            elif FULL_DAY in day:
+                status, reason = "clash", f"Day blocked in full for {day[FULL_DAY] or 'someone else'}"
+            elif slot == FULL_DAY and day:
+                status, reason = "clash", f"{', '.join(sorted(day))} already blocked"
+            else:
+                status, reason = "add", ""
+                day[slot] = by
+            plan.append({"date": when, "slot": slot, "by": by, "note": note, "status": status, "reason": reason})
+        return plan
+
+    @app.post("/calendar/site-sync")
+    @admin_required
+    def booking_site_sync():
+        target = request.form.get("next")
+        if not sitesync.configured():
+            flash("The website sync isn't set up on this server (see DEPLOY.md \u2192 Website calendar).", "error")
+        else:
+            sitesync.trigger(app)
+            flash("Syncing the website calendar now. Refresh in a minute to see the result.", "success")
+        return _safe_redirect(target, "booking_calendar")
+
+    @app.post("/calendar/bulk/preview")
+    @admin_required
+    def booking_bulk_preview():
+        rows, problems = _bulk_requests(request.form)
+        if len(rows) > BULK_LIMIT:
+            problems.append(f"That is {len(rows)} blocks; the most at once is {BULK_LIMIT}.")
+            rows = []
+        plan = _bulk_plan(rows)
+        return jsonify(
+            problems=problems,
+            add=sum(1 for p in plan if p["status"] == "add"),
+            rows=[{"date": p["date"].isoformat(), "label": p["date"].strftime("%a %d %b %Y"),
+                   "slot": p["slot"], "by": p["by"], "status": p["status"], "reason": p["reason"]}
+                  for p in plan],
+        )
+
+    @app.post("/calendar/bulk")
+    @admin_required
+    def booking_bulk():
+        target = request.form.get("next")
+        rows, problems = _bulk_requests(request.form)
+        if problems:
+            flash(" ".join(problems), "error")
+            return _safe_redirect(target, "booking_calendar")
+        if len(rows) > BULK_LIMIT:
+            flash(f"That is {len(rows)} blocks; the most at once is {BULK_LIMIT}.", "error")
+            return _safe_redirect(target, "booking_calendar")
+        plan = _bulk_plan(rows)
+        added = [p for p in plan if p["status"] == "add"]
+        if not added:
+            flash("Nothing new to block: every slot asked for is already blocked.", "error")
+            return _safe_redirect(target, "booking_calendar")
+        for p in added:
+            db.session.add(GroundBooking(booking_date=p["date"], slot=p["slot"], booked_by=p["by"], note=p["note"]))
+        try:
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            flash("Someone blocked one of those slots meanwhile. Nothing was saved; please try again.", "error")
+            return _safe_redirect(target, "booking_calendar")
+        _calendar_changed()
+        skipped = [p for p in plan if p["status"] != "add"]
+        message = f"Blocked {len(added)} slot{'' if len(added) == 1 else 's'}."
+        if skipped:
+            message += f" Skipped {len(skipped)} already blocked."
+        flash(message, "success" if not any(p["status"] == "clash" for p in skipped) else "warning")
         return _safe_redirect(target, "booking_calendar")
 
     def _remember_unblocked(bookings):
@@ -1053,6 +1282,7 @@ def _register_routes(app: Flask) -> None:
         _remember_unblocked([booking])
         db.session.delete(booking)
         db.session.commit()
+        _calendar_changed()
         flash(f"Unblocked {label}.", "success")
         return _safe_redirect(request.form.get("next"), "booking_calendar")
 
@@ -1074,6 +1304,7 @@ def _register_routes(app: Flask) -> None:
         for b in bookings:
             db.session.delete(b)
         db.session.commit()
+        _calendar_changed()
         flash(f"Unblocked the whole day: {when.strftime('%d %b %Y')} ({len(bookings)} block"
               f"{'' if len(bookings) == 1 else 's'}).", "success")
         return _safe_redirect(target, "booking_calendar")
@@ -1690,6 +1921,7 @@ def _register_routes(app: Flask) -> None:
             flash("Restore failed. Nothing was changed.", "error")
             return _safe_redirect(target)
 
+        _calendar_changed()
         if counts.get("scope"):
             flash(
                 f"Restored {counts['scope']}: {counts['transactions']} transactions and "

@@ -1,6 +1,22 @@
 {% extends "base.html" %}
 {% block title %}Calendar{% endblock %}
 
+{% macro booked_chip(b, whole) %}
+  {% set chip_title = b.slot ~ (' · ' ~ b.booked_by if b.booked_by else '') ~ (' · ' ~ b.note if b.note else '') %}
+  {% if is_admin %}
+    <button type="button" class="cal__chip {{ 'cal__chip--full' if whole else 'cal__chip--booked' }}"
+            title="{{ chip_title }} — click to edit or unblock"
+            data-edit-booking data-id="{{ b.id }}" data-date="{{ b.booking_date.isoformat() }}"
+            data-slot="{{ b.slot }}" data-by="{{ b.booked_by }}" data-note="{{ b.note }}">
+      {{ b.slot }}{% if b.booked_by %}<span class="cal__who"> · {{ b.booked_by }}</span>{% endif %}
+    </button>
+  {% else %}
+    <div class="cal__chip {{ 'cal__chip--full' if whole else 'cal__chip--booked' }}" title="{{ chip_title }}">
+      {{ b.slot }}{% if b.booked_by %}<span class="cal__who"> · {{ b.booked_by }}</span>{% endif %}
+    </div>
+  {% endif %}
+{% endmacro %}
+
 {% block content %}
 <div class="page-head">
   <div>
@@ -19,6 +35,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 6l-10 7L2 6"/></svg>
       Send mail
     </button>
+    <button class="btn btn--ghost" type="button" data-open-modal="bulkModal" title="Block many dates at once">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg>
+      Bulk block
+    </button>
     <button class="btn btn--primary" type="button" data-open-block data-date="{{ (this_month == month_key) and now_date.isoformat() or (month_key ~ '-01') }}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
       Block a date
@@ -28,6 +48,27 @@
 </div>
 {% include "_export_modal.html" %}
 {% if is_admin %}{% include "_mail_modal.html" %}{% endif %}
+
+{% if is_admin and site_sync %}
+<div class="site-sync small">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5M3 21v-5h5"/></svg>
+  <span>
+    <strong>Website calendar</strong> updates automatically when you change this one.
+    {% if site_status %}
+      Last sync {{ site_status.at[:16].replace('T', ' ') }} UTC:
+      {% if site_status.error %}<span class="v-neg">failed &mdash; {{ site_status.error }}</span>
+      {% else %}{{ site_status.created }} added, {{ site_status.deleted }} removed{% if site_status.conflict_count %},
+        <span class="v-warn">{{ site_status.conflict_count }} skipped because the website already has something there</span>{% for c in site_status.conflicts %}<span class="site-sync__c">{{ c }}</span>{% endfor %}{% endif %}.
+      {% endif %}
+    {% else %}Not synced yet.{% endif %}
+  </span>
+  <form method="post" action="{{ url_for('booking_site_sync') }}" style="margin:0 0 0 auto">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="next" value="{{ request.full_path }}">
+    <button class="btn btn--sm btn--ghost" type="submit">Sync website now</button>
+  </form>
+</div>
+{% endif %}
 
 <div class="card" style="margin-bottom:1rem">
   <div class="card__head cal-toolbar">
@@ -42,8 +83,8 @@
       <input type="month" name="month" value="{{ month_key }}" onchange="this.form.submit()" aria-label="Jump to month" style="width:auto">
     </form>
     <div class="legend">
-      <span class="legend__item"><span class="legend__swatch cal-sw cal-sw--free"></span>Free</span>
-      <span class="legend__item"><span class="legend__swatch cal-sw cal-sw--partial"></span>Some slots blocked</span>
+      <span class="legend__item"><span class="legend__swatch cal-sw cal-sw--free"></span>Free slot</span>
+      <span class="legend__item"><span class="legend__swatch cal-sw cal-sw--partial"></span>Blocked slot</span>
       <span class="legend__item"><span class="legend__swatch cal-sw cal-sw--full"></span>Full day</span>
     </div>
   </div>
@@ -56,21 +97,25 @@
                role="gridcell" data-open-day data-date="{{ d.date.isoformat() }}" tabindex="0"
                aria-label="{{ d.date.strftime('%d %B %Y') }}: {{ 'free' if d.status == 'free' else (d.bookings | length ~ ' blocked') }}">
             <div class="cal__num">{{ d.date.day }}</div>
-            {% for b in d.bookings %}
-              {% set chip_title = b.slot ~ (' · ' ~ b.booked_by if b.booked_by else '') ~ (' · ' ~ b.note if b.note else '') %}
-              {% if is_admin %}
-                <button type="button" class="cal__chip {{ 'cal__chip--full' if b.slot == full_day else '' }}"
-                        title="{{ chip_title }} — click to edit or unblock"
-                        data-edit-booking data-id="{{ b.id }}" data-date="{{ b.booking_date.isoformat() }}"
-                        data-slot="{{ b.slot }}" data-by="{{ b.booked_by }}" data-note="{{ b.note }}">
-                  {{ b.slot }}{% if b.booked_by %}<span class="cal__who"> · {{ b.booked_by }}</span>{% endif %}
-                </button>
-              {% else %}
-                <div class="cal__chip {{ 'cal__chip--full' if b.slot == full_day else '' }}" title="{{ chip_title }}">
-                  {{ b.slot }}{% if b.booked_by %}<span class="cal__who"> · {{ b.booked_by }}</span>{% endif %}
-                </div>
-              {% endif %}
-            {% endfor %}
+            {% set by_slot = {} %}
+            {% for b in d.bookings %}{% set _ = by_slot.update({b.slot: b}) %}{% endfor %}
+            {% if full_day in by_slot %}
+              {{ booked_chip(by_slot[full_day], true) }}
+            {% else %}
+              {% for s in booking_slots %}
+                {% if s in by_slot %}
+                  {{ booked_chip(by_slot[s], false) }}
+                {% elif d.in_month %}
+                  {% if is_admin %}
+                    <button type="button" class="cal__chip cal__chip--free" data-open-block
+                            data-date="{{ d.date.isoformat() }}" data-slot="{{ s }}"
+                            title="{{ s }} is free — click to block it">{{ s }}<span class="cal__who"> · Free</span></button>
+                  {% else %}
+                    <div class="cal__chip cal__chip--free" title="{{ s }} is free">{{ s }}<span class="cal__who"> · Free</span></div>
+                  {% endif %}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
           </div>
         {% endfor %}
       {% endfor %}
@@ -152,6 +197,83 @@
     <div class="modal__foot">
       <button class="btn btn--ghost" type="button" data-close-block>Cancel</button>
       <button class="btn btn--primary" type="submit">Block</button>
+    </div>
+  </form>
+</dialog>
+<dialog class="modal modal--wide" id="bulkModal" aria-labelledby="bulkModalTitle">
+  <form method="post" action="{{ url_for('booking_bulk') }}" id="bulkForm"
+        data-preview-url="{{ url_for('booking_bulk_preview') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="next" value="{{ request.full_path }}">
+    <div class="modal__head">
+      <h2 id="bulkModalTitle">Bulk block</h2>
+      <span class="spacer"></span>
+      <button class="btn btn--sm btn--ghost btn--icon" type="button" data-close-modal aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true" style="width:18px;height:18px"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="modal__body">
+      <div class="seg seg--pick" role="radiogroup" aria-label="How to enter the blocks" style="margin-bottom:.9rem">
+        <label><input type="radio" name="mode" value="repeat" checked><span>Repeat on days</span></label>
+        <label><input type="radio" name="mode" value="paste"><span>Paste a list</span></label>
+      </div>
+
+      <div class="form-grid" data-bulk-mode="repeat">
+        <div class="field">
+          <label for="bk-start">From</label>
+          <input type="date" id="bk-start" name="start" value="{{ month_key }}-01">
+        </div>
+        <div class="field">
+          <label for="bk-end">To</label>
+          <input type="date" id="bk-end" name="end">
+        </div>
+        <div class="field span-2">
+          <label>Every</label>
+          <div class="slot-picks">
+            {% for name in weekday_names %}
+              <label class="slot-pick"><input type="checkbox" name="weekday" value="{{ loop.index0 }}"> {{ name }}</label>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="field span-2">
+          <label>Block</label>
+          <div class="slot-picks">
+            <label class="slot-pick slot-pick--full"><input type="checkbox" name="slot" value="{{ full_day }}"> {{ full_day }}</label>
+            {% for s in booking_slots %}
+              <label class="slot-pick"><input type="checkbox" name="slot" value="{{ s }}"> {{ s }}</label>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+      <div class="form-grid" data-bulk-mode="paste" hidden>
+        <div class="field span-2">
+          <label for="bk-rows">Rows</label>
+          <textarea id="bk-rows" name="rows" rows="9" class="mono"
+                    placeholder="Octa Legends (Rohit)&#9;14-Nov-2026&#9;Saturday&#9;7:00 AM&#10;A1 Corporate (Abdul Qadir)&#9;10-Jan-2027&#9;Sunday&#9;Full day"></textarea>
+          <div class="small muted" style="margin-top:.35rem">Copy the rows from Excel and paste them here:
+            organizer, date and time on each line (the day name is ignored). Headers and a Total row are skipped.</div>
+        </div>
+      </div>
+
+      <div class="form-grid" style="margin-top:.9rem">
+        <div class="field">
+          <label for="bk-by">Booked by</label>
+          <input type="text" id="bk-by" name="booked_by" maxlength="120" autocomplete="off"
+                 placeholder="e.g. Octa Legends (Rohit)">
+        </div>
+        <div class="field">
+          <label for="bk-note">Note</label>
+          <input type="text" id="bk-note" name="note" maxlength="255" autocomplete="off" placeholder="Optional">
+        </div>
+      </div>
+
+      <div class="bulk-preview" data-bulk-preview hidden></div>
+    </div>
+    <div class="modal__foot">
+      <button class="btn btn--ghost" type="button" data-close-modal style="margin-right:auto">Cancel</button>
+      <button class="btn" type="button" data-bulk-check>Preview</button>
+      <button class="btn btn--primary" type="submit" data-bulk-save disabled>Block</button>
     </div>
   </form>
 </dialog>

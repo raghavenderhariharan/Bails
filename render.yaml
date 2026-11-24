@@ -42,3 +42,10 @@ services:
         sync: false
       - key: GMAIL_REFRESH_TOKEN
         sync: false
+      # Mirror the ground calendar to the public website (DEPLOY.md -> Website calendar).
+      - key: BAILS_SITE_URL
+        value: https://bails-cricket-ground.onrender.com
+      - key: BAILS_SITE_USER
+        sync: false
+      - key: BAILS_SITE_PASSWORD
+        sync: false

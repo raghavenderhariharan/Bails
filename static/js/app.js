@@ -327,9 +327,13 @@
       : (t.length ? "Already blocked: " + t.join(", ") + "." : "");
   }
 
-  function open(day) {
+  function open(day, slot) {
     form.reset();
     dateInput.value = day || new Date().toISOString().slice(0, 10);
+    if (slot) {
+      var pick = form.querySelector('input[name="slot"][value="' + slot + '"]');
+      if (pick) pick.checked = true;
+    }
     sync();
     if (modal.showModal) modal.showModal(); else modal.setAttribute("open", "");
   }
@@ -337,7 +341,7 @@
 
   document.addEventListener("click", function (e) {
     var opener = e.target.closest("[data-open-block]");
-    if (opener) { open(opener.getAttribute("data-date")); return; }
+    if (opener) { open(opener.getAttribute("data-date"), opener.getAttribute("data-slot")); return; }
     if (e.target.closest("[data-close-block]")) close();
   });
   document.addEventListener("keydown", function (e) {
@@ -768,13 +772,85 @@
 
   document.addEventListener("click", function (e) {
     if (e.target.closest("[data-day-block]")) { window.BailsModal.close(modal); return; }
+    // A free-slot bar inside the cell opens the block dialog instead.
+    if (e.target.closest("[data-open-block]")) return;
     var cell = e.target.closest("[data-open-day]");
     if (cell) show(cell.getAttribute("data-date"));
   });
   document.addEventListener("keydown", function (e) {
     var cell = e.target.closest && e.target.closest("[data-open-day]");
-    if (cell && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); show(cell.getAttribute("data-date")); }
+    if (cell && e.target === cell && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); show(cell.getAttribute("data-date")); }
   });
   var wanted = new URLSearchParams(location.search).get("day");
   if (wanted && /^\d{4}-\d{2}-\d{2}$/.test(wanted)) show(wanted);
+})();
+
+/* Calendar bulk block: build the list (repeat on days, or paste rows), preview
+   what will be added or skipped, then save in one go. */
+(function () {
+  "use strict";
+  var form = document.getElementById("bulkForm");
+  if (!form) return;
+  var box = form.querySelector("[data-bulk-preview]");
+  var save = form.querySelector("[data-bulk-save]");
+  function mode() { var r = form.querySelector('input[name="mode"]:checked'); return r ? r.value : "repeat"; }
+  function syncMode() {
+    form.querySelectorAll("[data-bulk-mode]").forEach(function (g) {
+      var on = g.getAttribute("data-bulk-mode") === mode();
+      g.hidden = !on;
+      g.querySelectorAll("input,textarea,select").forEach(function (i) { i.disabled = !on; });
+    });
+    form.querySelector("#bk-by").placeholder = mode() === "paste"
+      ? "Used for rows without an organizer" : "e.g. Octa Legends (Rohit)";
+  }
+  function stale() { save.disabled = true; save.textContent = "Block"; box.hidden = true; }
+  form.addEventListener("change", function (e) {
+    if (e.target.name === "mode") syncMode();
+    // Full Day and single slots don't mix.
+    if (e.target.name === "slot" && e.target.checked) {
+      var full = e.target.value === "Full Day";
+      form.querySelectorAll('input[name="slot"]').forEach(function (i) {
+        if (i !== e.target && (full || i.value === "Full Day")) i.checked = false;
+      });
+    }
+    stale();
+  });
+  form.addEventListener("input", stale);
+  function cell(tr, text, cls) { var td = document.createElement("td"); td.textContent = text; if (cls) td.className = cls; tr.appendChild(td); }
+  form.querySelector("[data-bulk-check]").addEventListener("click", function () {
+    box.hidden = false; box.textContent = "Checking…";
+    fetch(form.getAttribute("data-preview-url"), { method: "POST", body: new FormData(form), credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function (d) {
+        box.textContent = "";
+        (d.problems || []).forEach(function (p) {
+          var div = document.createElement("div"); div.className = "small v-neg"; div.textContent = p; box.appendChild(div);
+        });
+        var skipped = d.rows.length - d.add;
+        var head = document.createElement("p");
+        head.className = "small"; head.style.margin = ".6rem 0";
+        head.textContent = d.rows.length ? d.add + " to block" + (skipped ? ", " + skipped + " skipped (already blocked)" : "") + "."
+          : (d.problems && d.problems.length ? "" : "Nothing matches — check the dates, days and slots.");
+        box.appendChild(head);
+        if (d.rows.length) {
+          var wrap = document.createElement("div"); wrap.className = "table-scroll bulk-preview__table";
+          var t = document.createElement("table"); t.className = "ledger";
+          t.innerHTML = "<thead><tr><th>Date</th><th>Slot</th><th>Booked by</th><th></th></tr></thead>";
+          var tb = document.createElement("tbody");
+          d.rows.forEach(function (r) {
+            var tr = document.createElement("tr");
+            if (r.status !== "add") tr.className = "row--muted";
+            cell(tr, r.label, "nowrap"); cell(tr, r.slot, "nowrap"); cell(tr, r.by || "—");
+            cell(tr, r.status === "add" ? "New" : r.reason, "small " + (r.status === "add" ? "v-pos" : r.status === "clash" ? "v-neg" : "muted"));
+            tb.appendChild(tr);
+          });
+          t.appendChild(tb); wrap.appendChild(t); box.appendChild(wrap);
+        }
+        save.disabled = !(d.add > 0) || (d.problems && d.problems.length > 0);
+        save.textContent = d.add > 0 ? "Block " + d.add + " slot" + (d.add === 1 ? "" : "s") : "Block";
+      })
+      .catch(function () { box.textContent = "Could not check — are you still signed in?"; });
+  });
+  document.getElementById("bulkModal").addEventListener("bails:open", function () { syncMode(); stale(); });
+  syncMode();
 })();

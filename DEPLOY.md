@@ -238,6 +238,36 @@ addresses, subject and message filled in. You attach the file and press send.
 `SMTP_USER` to the Gmail address and `SMTP_PASSWORD` to a Gmail
 [app password](https://myaccount.google.com/apppasswords) in your `.env`.
 
+## Website calendar (mirror to bails-cricket-ground.onrender.com)
+
+Every change to the ledger's Ground Calendar can be copied to the public
+website's calendar automatically. This includes blocking, editing, unblocking,
+**Bulk block** and restoring a backup. The copy runs in the background, so a
+slow website never holds up the ledger.
+
+1. In Render, open the ledger service and go to **Environment**. Add these
+   three and click **Save**:
+   - `BAILS_SITE_URL` = `https://bails-cricket-ground.onrender.com`
+   - `BAILS_SITE_USER` = the website's admin user name
+   - `BAILS_SITE_PASSWORD` = the website's admin password
+2. Open **Calendar** in the ledger and click **Sync website now** once. The
+   line above the calendar shows the last result.
+
+How it behaves:
+- **Direction:** one way only, ledger to website, for today onward. Changes
+  made on the website are not copied back.
+- **What it touches:** each block the ledger adds carries `[Ledger #id]` in its
+  admin-only note. Only those blocks are ever changed or removed. Anything you
+  add by hand on the website (HCA days, fixtures) is never touched.
+- **Clashes:** if the website already has something in a slot, that ledger block
+  is skipped, and the line above the calendar says which.
+- **Public label:** the website shows the team name with the contact person in
+  brackets removed. "Octa Legends (Rohit)" shows as "Octa Legends", and the full
+  name goes in the admin-only note.
+
+Never put the password in `render.yaml`, `.env.example` or anywhere else in the
+repository. Locally it can go in `.env`, which git ignores.
+
 ## If something goes wrong
 
 | Symptom | Cause and fix |
