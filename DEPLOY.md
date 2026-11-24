@@ -254,13 +254,14 @@ slow website never holds up the ledger.
    line above the calendar shows the last result.
 
 How it behaves:
-- **Direction:** one way only, ledger to website, for today onward. Changes
-  made on the website are not copied back.
-- **What it touches:** each block the ledger adds carries `[Ledger #id]` in its
-  admin-only note. Only those blocks are ever changed or removed. Anything you
-  add by hand on the website (HCA days, fixtures) is never touched.
-- **Clashes:** if the website already has something in a slot, that ledger block
-  is skipped, and the line above the calendar says which.
+- **Master record:** the ledger. From today onward, the website's blocked
+  slots are made to match the ledger exactly. A block on the website that the
+  ledger doesn't have is removed, even one added there by hand, so block
+  everything (HCA days included) in the ledger.
+- **Untouched:** past days, and the website's fixtures (its separate list of
+  matches).
+- **Direction:** one way only. Changes made on the website are not copied
+  back, and the next ledger change undoes them.
 - **Public label:** the website shows the team name with the contact person in
   brackets removed. "Octa Legends (Rohit)" shows as "Octa Legends", and the full
   name goes in the admin-only note.

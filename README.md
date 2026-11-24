@@ -97,9 +97,9 @@ Other features:
   (organizer, date, day, time). A preview shows what is new and what is already
   blocked before anything is saved. Free slots show as green bars on the
   calendar and blocked slots as red.
-- **Website calendar mirror**: every calendar change is copied to the public
-  site's calendar (bails-cricket-ground.onrender.com) in the background, without
-  touching anything added there by hand. Setup: DEPLOY.md → *Website calendar*.
+- **Website calendar mirror**: the ledger is the master record. After every
+  calendar change, the public site's calendar (bails-cricket-ground.onrender.com)
+  is made to match it from today onward, in the background. Setup: DEPLOY.md → *Website calendar*.
 - **Ground calendar** — Admin clicks a day (or **Block a date**) and ticks
   one or more slots, or **Full Day**, with an optional "booked by" and note.
   A slot can't be blocked twice, a full day can't be added on top of slots

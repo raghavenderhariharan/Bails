@@ -1,12 +1,12 @@
 """Keep the public Bails website's calendar in step with the ledger's.
 
-One way: ledger -> website. After every calendar change in the ledger, the
-ledger's blocks from today onward are pushed to the website's admin API
-(bails-cricket-ground.onrender.com). Each block the ledger creates there
-carries a "[Ledger #<id>]" tag in its admin-only note. Only tagged blocks are
-ever changed or deleted, so anything added by hand on the website (HCA days,
-fixtures...) is left alone. A ledger block that clashes with one of those is
-skipped and reported.
+One way: ledger -> website. The ledger is the master record: after every
+calendar change, the website's blocked slots from today onward are made to
+match the ledger's exactly (bails-cricket-ground.onrender.com admin API).
+Website blocks the ledger doesn't have are removed, even ones added there by
+hand, and the ledger's are added. Each block the ledger creates carries a
+"[Ledger #<id>]" tag in its admin-only note so later syncs recognise it.
+Past days and the website's fixtures (a separate list) are left alone.
 
 Configured only by environment variables (never commit the password):
 
@@ -101,7 +101,11 @@ def plan(local, remote, today):
     for r in remote:
         m = TAG_RE.search(r.get("note") or "")
         if not m:
-            continue  # added on the website by hand: never touched
+            # Added on the website by hand. The ledger is the master record, so
+            # from today onward it goes; past days are history and stay.
+            if (r.get("date") or "") >= today.isoformat():
+                deletes.append(r)
+            continue
         lid = int(m.group(1))
         if lid in wanted:
             want = wanted[lid][1]

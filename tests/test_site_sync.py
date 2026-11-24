@@ -53,21 +53,34 @@ def test_payload_hides_the_contact_person_and_tags_the_block():
     assert sitesync.category_for("HCA", "") == "hca" and sitesync.category_for("ECL", "") == "tournament"
 
 
-def test_creates_new_blocks_and_leaves_the_websites_own_alone():
-    site = FakeSite([{"id": "h1", "date": "2026-11-25", "slot": "full", "category": "hca",
-                      "label": "HCA Division C Matches", "note": ""}])
+def test_ledger_is_the_master_record():
+    site = FakeSite([
+        {"id": "h1", "date": "2026-11-25", "slot": "full", "category": "hca", "label": "HCA Division C Matches", "note": ""},
+        {"id": "h2", "date": "2026-11-28", "slot": "full", "category": "tournament", "label": "ECL", "note": ""},
+        {"id": "h0", "date": "2026-11-23", "slot": "full", "category": "hca", "label": "Past HCA", "note": ""},
+    ])
     local = [bk(1, "2026-11-28", "7:00 AM", "Octa Legends (Rohit)"),
              bk(2, "2026-11-28", "10:45 AM", "ECL"),
-             bk(3, "2026-11-25", "7:00 AM", "Club"),          # clashes with the HCA day
+             bk(3, "2026-11-25", "Full Day", "HCA"),
              bk(4, "2026-11-20", "7:00 AM", "Past")]          # in the past: not pushed
     status = sitesync.run(local, site, today=TODAY)
-    assert status["created"] == 2 and status["deleted"] == 0
-    assert status["conflict_count"] == 1 and "HCA Division C Matches" in status["conflicts"][0]
-    assert any(r["id"] == "h1" for r in site.rows)
-    assert site.calls[0] == "login" and site.calls[-1] == "logout"
+    # The hand-added 25 and 28 Nov blocks give way to the ledger's; the past one stays.
+    assert status == {**status, "ok": True, "created": 3, "deleted": 2, "conflict_count": 0}
+    assert sorted((r["date"], r["slot"], r["label"]) for r in site.rows) == [
+        ("2026-11-23", "full", "Past HCA"), ("2026-11-25", "full", "HCA"),
+        ("2026-11-28", "s1", "Octa Legends"), ("2026-11-28", "s2", "ECL")]
     # Running again changes nothing.
     again = sitesync.run(local, site, today=TODAY)
     assert again["created"] == 0 and again["deleted"] == 0
+
+
+def test_a_block_added_on_the_website_is_removed_next_time():
+    site = FakeSite()
+    local = [bk(1, "2026-12-05", "7:00 AM", "Octa")]
+    sitesync.run(local, site, today=TODAY)
+    site.rows.append({"id": "x9", "date": "2026-12-05", "slot": "s2", "category": "private", "label": "Walk-in", "note": ""})
+    status = sitesync.run(local, site, today=TODAY)
+    assert status["deleted"] == 1 and [r["slot"] for r in site.rows] == ["s1"]
 
 
 def test_unblock_and_edit_are_mirrored():
